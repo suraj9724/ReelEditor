@@ -1,4 +1,3 @@
-
 import { useState, useCallback, useEffect } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { toast } from "sonner";
@@ -27,7 +26,7 @@ export const useTimeline = () => {
       setDuration(5); // Default duration if no elements
       return;
     }
-    
+
     const maxEnd = Math.max(...currentElements.map(el => el.end));
     setDuration(maxEnd);
   }, []);
@@ -36,7 +35,7 @@ export const useTimeline = () => {
   const addMediaElement = useCallback((mediaItem: any, trackIndex: number = 0, startTime: number = currentTime) => {
     const id = uuidv4();
     const mediaDuration = mediaItem.duration || 5;
-    
+
     const newElement: TimelineElement = {
       id,
       type: mediaItem.type,
@@ -49,20 +48,20 @@ export const useTimeline = () => {
         src: mediaItem.url,
         volume: 1.0, // Ensure video has volume
       },
-      x: 10,
-      y: 10,
-      width: mediaItem.type === "image" ? 300 : 480,
-      height: mediaItem.type === "image" ? 200 : 270,
+      x: 0,
+      y: 0,
+      width: mediaItem.type === "image" ? 300 : 480, // Set initial video width
+      height: mediaItem.type === "image" ? 200 : 270, // Set initial video height
       rotation: 0,
       speed: 1.0, // Default speed
     };
-    
+
     setElements((prev) => {
       const newElements = [...prev, newElement];
       recalculateDuration(newElements);
       return newElements;
     });
-    
+
     saveHistory();
     return id;
   }, [currentTime, recalculateDuration, saveHistory]);
@@ -71,7 +70,7 @@ export const useTimeline = () => {
   const addAudioElement = useCallback((audioFile: any, trackIndex: number = 2, startTime: number = currentTime) => {
     const id = uuidv4();
     const audioDuration = audioFile.duration || 10;
-    
+
     const newElement: TimelineElement = {
       id,
       type: "audio",
@@ -91,13 +90,13 @@ export const useTimeline = () => {
       rotation: 0,
       speed: 1.0, // Default speed
     };
-    
+
     setElements((prev) => {
       const newElements = [...prev, newElement];
       recalculateDuration(newElements);
       return newElements;
     });
-    
+
     saveHistory();
     toast.success(`Added audio: ${audioFile.name || "Audio Track"}`);
     return id;
@@ -106,7 +105,7 @@ export const useTimeline = () => {
   // Add a text element to the timeline
   const addTextElement = useCallback((textProps: any, trackIndex: number = 0, startTime: number = currentTime) => {
     const id = uuidv4();
-    
+
     const newElement: TimelineElement = {
       id,
       type: "text",
@@ -114,21 +113,29 @@ export const useTimeline = () => {
       start: startTime,
       end: startTime + 5,
       track: trackIndex,
-      content: textProps,
-      x: 240 - (textProps.content.content.length * 5),
+      content: {
+        src: "", // Dummy src to satisfy type requirement
+        content: textProps.content,
+        fontSize: textProps.fontSize,
+        fontWeight: textProps.fontWeight,
+        fontStyle: textProps.fontStyle,
+        color: textProps.color,
+        alignment: textProps.alignment
+      },
+      x: 240 - (textProps.content.length * 5),
       y: 135,
-      width: Math.max(200, textProps.content.content.length * 10),
+      width: Math.max(200, textProps.content.length * 10),
       height: 40,
       rotation: 0,
       speed: 1.0, // Default speed
     };
-    
+
     setElements((prev) => {
       const newElements = [...prev, newElement];
       recalculateDuration(newElements);
       return newElements;
     });
-    
+
     saveHistory();
     return id;
   }, [currentTime, recalculateDuration, saveHistory]);
@@ -140,7 +147,7 @@ export const useTimeline = () => {
       recalculateDuration(newElements);
       return newElements;
     });
-    
+
     if (selectedElementId === id) {
       setSelectedElementId(null);
     }
@@ -169,11 +176,11 @@ export const useTimeline = () => {
   const updateElementVolume = useCallback((id: string, volume: number) => {
     setElements((prev) =>
       prev.map((el) =>
-        el.id === id ? { 
-          ...el, 
-          content: { 
-            ...el.content, 
-            volume 
+        el.id === id ? {
+          ...el,
+          content: {
+            ...el.content,
+            volume
           }
         } : el
       )
@@ -185,11 +192,11 @@ export const useTimeline = () => {
   const toggleElementMute = useCallback((id: string, muted: boolean) => {
     setElements((prev) =>
       prev.map((el) =>
-        el.id === id ? { 
-          ...el, 
-          content: { 
-            ...el.content, 
-            muted 
+        el.id === id ? {
+          ...el,
+          content: {
+            ...el.content,
+            muted
           }
         } : el
       )
@@ -201,11 +208,11 @@ export const useTimeline = () => {
   const cropElement = useCallback((id: string, crop: { x: number; y: number; width: number; height: number }) => {
     setElements((prev) =>
       prev.map((el) =>
-        el.id === id ? { 
-          ...el, 
-          content: { 
-            ...el.content, 
-            crop 
+        el.id === id ? {
+          ...el,
+          content: {
+            ...el.content,
+            crop
           }
         } : el
       )
@@ -220,9 +227,9 @@ export const useTimeline = () => {
         if (el.id === id) {
           // If this is a video element, we should update both the start/end times
           // and adjust the video content to reflect the new trimmed section
-          return { 
-            ...el, 
-            start, 
+          return {
+            ...el,
+            start,
             end,
             // Update content if needed to reflect the trimmed section
             content: {
@@ -234,19 +241,19 @@ export const useTimeline = () => {
         }
         return el;
       });
-      
+
       // Recalculate the timeline duration based on all elements
       recalculateDuration(updatedElements);
       return updatedElements;
     });
-    
+
     // If we're trimming and the current time is outside the new range, 
     // update it to be at the start of the trimmed section
     const element = elements.find(el => el.id === id);
     if (element && (currentTime < start || currentTime > end)) {
       setCurrentTime(start);
     }
-    
+
     saveHistory();
     toast.success("Element trimmed successfully");
   }, [elements, currentTime, saveHistory, recalculateDuration]);
@@ -260,21 +267,21 @@ export const useTimeline = () => {
           const originalDuration = el.end - el.start;
           const newDuration = originalDuration / speed;
           const newEnd = el.start + newDuration;
-          
-          return { 
-            ...el, 
-            speed, 
-            end: newEnd 
+
+          return {
+            ...el,
+            speed,
+            end: newEnd
           };
         }
         return el;
       });
-      
+
       // Recalculate the timeline duration
       recalculateDuration(updatedElements);
       return updatedElements;
     });
-    
+
     saveHistory();
     toast.success(`Speed set to ${speed}x`);
   }, [saveHistory, recalculateDuration]);
@@ -283,12 +290,12 @@ export const useTimeline = () => {
   const mergeVideoElements = useCallback((firstId: string, secondId: string) => {
     const first = elements.find(el => el.id === firstId);
     const second = elements.find(el => el.id === secondId);
-    
+
     if (!first || !second || first.type !== "video" || second.type !== "video") {
       toast.error("Can only merge video elements");
       return;
     }
-    
+
     // Create a new merged element
     const id = uuidv4();
     const mergedElement: TimelineElement = {
@@ -312,17 +319,17 @@ export const useTimeline = () => {
       rotation: 0,
       speed: 1.0,
     };
-    
+
     setElements(prev => {
       const newElements = [...prev.filter(el => el.id !== firstId && el.id !== secondId), mergedElement];
       recalculateDuration(newElements);
       return newElements;
     });
-    
+
     setSelectedElementId(id);
     saveHistory();
     toast.success("Videos merged successfully");
-    
+
     return id;
   }, [elements, saveHistory, recalculateDuration]);
 
@@ -340,7 +347,7 @@ export const useTimeline = () => {
   // Undo the last action
   const undo = useCallback(() => {
     if (historyIndex <= 0) return false;
-    
+
     const prevState = history[historyIndex - 1];
     setElements(prevState);
     setHistoryIndex((prev) => prev - 1);
@@ -351,7 +358,7 @@ export const useTimeline = () => {
   // Redo the last undone action
   const redo = useCallback(() => {
     if (historyIndex >= history.length - 1) return false;
-    
+
     const nextState = history[historyIndex + 1];
     setElements(nextState);
     setHistoryIndex((prev) => prev + 1);
