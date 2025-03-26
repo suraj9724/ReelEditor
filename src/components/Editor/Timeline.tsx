@@ -1,4 +1,3 @@
-
 import { useRef, useState, useEffect } from "react";
 import {
   Play,
@@ -10,6 +9,7 @@ import {
   Plus,
   Minus,
   Scissors,
+  Trash2,
 } from "lucide-react";
 import IconButton from "../UI/IconButton";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -26,6 +26,7 @@ interface TimelineProps {
   zoom: number;
   onZoomChange: (zoom: number) => void;
   onTrimClip?: (clipId: string, newStart: number, newEnd: number) => void;
+  onDeleteClip?: (clipId: string) => void;
 }
 
 interface TimelineClip {
@@ -50,6 +51,7 @@ const Timeline = ({
   zoom,
   onZoomChange,
   onTrimClip,
+  onDeleteClip,
 }: TimelineProps) => {
   const [isExpanded, setIsExpanded] = useState(true);
   const [isTrimming, setIsTrimming] = useState(false);
@@ -72,11 +74,11 @@ const Timeline = ({
 
   const handleTimelineClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!timelineRef.current) return;
-    
+
     const rect = timelineRef.current.getBoundingClientRect();
     const offsetX = e.clientX - rect.left;
     const newTime = (offsetX / rect.width) * duration;
-    
+
     onTimeUpdate(Math.max(0, Math.min(newTime, duration)));
   };
 
@@ -96,13 +98,13 @@ const Timeline = ({
 
   const handleMouseMove = (e: React.MouseEvent) => {
     if (!timelineRef.current) return;
-    
+
     // Get current mouse position on timeline
     const rect = timelineRef.current.getBoundingClientRect();
     const offsetX = e.clientX - rect.left;
     const currentPoint = (offsetX / rect.width) * duration;
     const clampedPoint = Math.max(0, Math.min(currentPoint, duration));
-    
+
     // Update hover time indicator
     const hoverTimeEl = document.getElementById('hover-time');
     if (hoverTimeEl) {
@@ -115,7 +117,7 @@ const Timeline = ({
     if (isTrimming && selectedClipId) {
       const clip = clips.find(c => c.id === selectedClipId);
       if (!clip) return;
-      
+
       if (trimSide === "start") {
         if (clampedPoint >= clip.end - 0.5) return; // Minimum clip duration
         if (onTrimClip) onTrimClip(selectedClipId, clampedPoint, clip.end);
@@ -146,7 +148,7 @@ const Timeline = ({
       // Sort the selection points
       const start = Math.min(selectionStart, selectionEnd);
       const end = Math.max(selectionStart, selectionEnd);
-      
+
       // If the selection is very small, it might be a click rather than a selection
       if (Math.abs(end - start) < 0.1) {
         setSelectionStart(null);
@@ -156,7 +158,7 @@ const Timeline = ({
         setTrimSide(null);
         return;
       }
-      
+
       // Show tooltip with trim options
       setShowSelectionTooltip(true);
     } else {
@@ -171,12 +173,12 @@ const Timeline = ({
     if (hoverTimeEl) {
       hoverTimeEl.style.display = 'none';
     }
-    
+
     if (!showSelectionTooltip) {
       setSelectionStart(null);
       setSelectionEnd(null);
     }
-    
+
     setIsTrimming(false);
     setTrimSide(null);
   };
@@ -261,16 +263,25 @@ const Timeline = ({
     }
   }, [selectedClipId]);
 
+  // Handle clip deletion
+  const handleDeleteClip = (e: React.MouseEvent, clipId: string) => {
+    e.stopPropagation();
+    if (onDeleteClip) {
+      onDeleteClip(clipId);
+      onClipSelect(null);
+    }
+  };
+
   return (
     <div className="relative">
       {/* Resize handle */}
-      <div 
+      <div
         ref={resizeRef}
         className="absolute top-0 left-0 right-0 h-2 bg-editor-border cursor-ns-resize z-10"
         style={{ transform: 'translateY(-50%)' }}
       />
-      
-      <div 
+
+      <div
         className={`border-t border-editor-border bg-editor-background transition-all duration-300 ${isExpanded ? "" : "h-12"}`}
         style={{ height: isExpanded ? `${timelineHeight}px` : '48px', marginTop: '1.5rem' }}
       >
@@ -285,7 +296,7 @@ const Timeline = ({
               {formatTime(currentTime)} / {formatTime(duration)}
             </div>
           </div>
-          
+
           <div className="flex items-center gap-2">
             <div className="flex bg-editor-timeline rounded-md">
               <IconButton
@@ -304,7 +315,7 @@ const Timeline = ({
                 className="rounded-l-none"
               />
             </div>
-            
+
             <IconButton
               icon={isExpanded ? ChevronDown : ChevronUp}
               onClick={() => setIsExpanded(!isExpanded)}
@@ -312,7 +323,7 @@ const Timeline = ({
             />
           </div>
         </div>
-        
+
         {isExpanded && (
           <div className="relative h-[calc(100%-48px)] overflow-x-auto overflow-y-auto custom-scrollbar">
             {/* Ruler */}
@@ -331,18 +342,18 @@ const Timeline = ({
                     )}
                   </div>
                 ))}
-                
+
                 {/* Hover time indicator */}
-                <div 
-                  id="hover-time" 
+                <div
+                  id="hover-time"
                   className="absolute bottom-full transform -translate-x-1/2 bg-black text-white text-xs px-1 py-0.5 rounded pointer-events-none hidden"
                   style={{ zIndex: 30 }}
                 ></div>
               </div>
             </div>
-            
+
             {/* Timeline Content */}
-            <div 
+            <div
               ref={timelineRef}
               className="relative h-[calc(100%-32px)] min-w-full timeline-tracks"
               style={{ width: `${duration * pixelsPerSecond}px` }}
@@ -360,7 +371,7 @@ const Timeline = ({
                   style={{ left: `${i * pixelsPerSecond}px` }}
                 />
               ))}
-              
+
               {/* Playhead */}
               <div
                 className="absolute top-0 bottom-0 w-px bg-editor-accent z-10"
@@ -371,9 +382,9 @@ const Timeline = ({
                   {formatTime(currentTime)}
                 </div>
               </div>
-              
+
               {/* Selection area */}
-              <div 
+              <div
                 ref={selectionRef}
                 className="absolute top-0 bottom-0 bg-editor-accent/20 border border-editor-accent z-5"
                 style={selectionStyle}
@@ -384,14 +395,14 @@ const Timeline = ({
                       {formatTime(Math.min(selectionStart, selectionEnd))} - {formatTime(Math.max(selectionStart, selectionEnd))}
                     </div>
                     {selectedClipId && (
-                      <button 
+                      <button
                         className="text-xs bg-editor-accent text-white px-2 py-1 rounded hover:bg-editor-accent/90"
                         onClick={applySelectionToClip}
                       >
                         Apply to Selected Clip
                       </button>
                     )}
-                    <button 
+                    <button
                       className="text-xs bg-gray-100 px-2 py-1 rounded hover:bg-gray-200"
                       onClick={clearSelection}
                     >
@@ -400,30 +411,28 @@ const Timeline = ({
                   </div>
                 )}
               </div>
-              
+
               {/* Track backgrounds */}
               {[0, 1, 2].map((trackIndex) => (
-                <div 
-                  key={`track-${trackIndex}`} 
+                <div
+                  key={`track-${trackIndex}`}
                   className="absolute h-10 left-0 right-0 border-b border-editor-border/50"
                   style={{ top: `${trackIndex * 38}px` }}
                 />
               ))}
-              
+
               {/* Clips */}
               {clips.map((clip) => (
                 <div
                   key={clip.id}
-                  className={`timeline-item absolute h-9 flex items-center px-2 rounded-sm ${
-                    selectedClipId === clip.id
-                      ? "ring-2 ring-editor-accent"
-                      : ""
-                  } ${
-                    clip.type === 'video' ? 'bg-blue-100' :
-                    clip.type === 'audio' ? 'bg-green-100' :
-                    clip.type === 'text' ? 'bg-purple-100' :
-                    clip.type === 'image' ? 'bg-yellow-100' : 'bg-gray-100'
-                  }`}
+                  className={`timeline-item absolute h-9 flex items-center px-2 rounded-sm ${selectedClipId === clip.id
+                    ? "ring-2 ring-editor-accent"
+                    : ""
+                    } ${clip.type === 'video' ? 'bg-blue-100' :
+                      clip.type === 'audio' ? 'bg-green-100' :
+                        clip.type === 'text' ? 'bg-purple-100' :
+                          clip.type === 'image' ? 'bg-yellow-100' : 'bg-gray-100'
+                    }`}
                   style={getClipStyle(clip)}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -444,15 +453,26 @@ const Timeline = ({
                       {clip.name}
                     </div>
                   </div>
-                  
+
+                  {/* Delete button for selected clips */}
+                  {selectedClipId === clip.id && onDeleteClip && (
+                    <div
+                      className="absolute -top-8 right-0 bg-red-500 text-white p-1 rounded cursor-pointer hover:bg-red-600 transition-colors"
+                      onClick={(e) => handleDeleteClip(e, clip.id)}
+                      title="Delete clip"
+                    >
+                      <Trash2 size={14} />
+                    </div>
+                  )}
+
                   {/* Trim handles */}
                   {onTrimClip && (
                     <>
-                      <div 
+                      <div
                         className="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-editor-accent hover:bg-opacity-30"
                         onMouseDown={(e) => handleTrimStart(clip.id, e)}
                       />
-                      <div 
+                      <div
                         className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-editor-accent hover:bg-opacity-30"
                         onMouseDown={(e) => handleTrimEnd(clip.id, e)}
                       />

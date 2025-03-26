@@ -30,7 +30,7 @@ const Index = () => {
   const [selectedVideosForMerge, setSelectedVideosForMerge] = useState<string[]>([]);
   const [isExporting, setIsExporting] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(220);
-  
+
   const {
     mediaItems,
     audioItems,
@@ -38,7 +38,7 @@ const Index = () => {
     addMedia,
     removeMedia,
   } = useMediaLibrary();
-  
+
   const {
     elements,
     selectedElementId,
@@ -67,7 +67,7 @@ const Index = () => {
     canUndo,
     canRedo,
   } = useTimeline();
-  
+
   const {
     activeTool,
     projectName,
@@ -85,16 +85,16 @@ const Index = () => {
   // Handle file uploads
   const handleMediaUpload = async (files: File[]) => {
     const newItems = await addMedia(files);
-    
+
     // Automatically add to timeline if in media tool
     if (activeTool === "media" && newItems.length > 0) {
       // Place each item sequentially on the timeline
       newItems.forEach((item, index) => {
         // Calculate start time for sequential placement
-        const prevItemsTime = index > 0 
-          ? newItems.slice(0, index).reduce((total, item) => total + (item.duration || 5), 0) 
+        const prevItemsTime = index > 0
+          ? newItems.slice(0, index).reduce((total, item) => total + (item.duration || 5), 0)
           : 0;
-        
+
         if (item.type === "audio") {
           addAudioElement(item, 2, currentTime + prevItemsTime);
         } else {
@@ -107,13 +107,13 @@ const Index = () => {
   // Handle audio upload
   const handleAudioUpload = async (files: File[]) => {
     const newItems = await addMedia(files);
-    
+
     // Add audio to timeline
     newItems.forEach((item, index) => {
-      const prevItemsTime = index > 0 
-        ? newItems.slice(0, index).reduce((total, item) => total + (item.duration || 5), 0) 
+      const prevItemsTime = index > 0
+        ? newItems.slice(0, index).reduce((total, item) => total + (item.duration || 5), 0)
         : 0;
-      
+
       addAudioElement(item, 2, currentTime + prevItemsTime);
     });
   };
@@ -126,12 +126,12 @@ const Index = () => {
         toast.error("Only videos can be merged");
         return;
       }
-      
+
       // Check if this item is already in the timeline
-      const elementInTimeline = elements.find(el => 
+      const elementInTimeline = elements.find(el =>
         el.type === "video" && el.content.src === item.url
       );
-      
+
       if (!elementInTimeline) {
         // Add to timeline first
         const elementId = addMediaElement(item);
@@ -153,7 +153,7 @@ const Index = () => {
       toast.error("Only videos can be merged");
       return;
     }
-    
+
     setSelectedVideosForMerge(prev => {
       if (prev.includes(elementId)) {
         return prev.filter(id => id !== elementId);
@@ -173,7 +173,7 @@ const Index = () => {
       toast.error("Please select exactly two videos to merge");
       return;
     }
-    
+
     mergeVideoElements(selectedVideosForMerge[0], selectedVideosForMerge[1]);
     setSelectedVideosForMerge([]);
     setActiveTool("select");
@@ -222,14 +222,14 @@ const Index = () => {
   // Handle playback
   useEffect(() => {
     if (!isPlaying) return;
-    
+
     let animationFrame: number;
     let lastTime = performance.now();
-    
+
     const updateTime = (currentTime: number) => {
       const delta = (currentTime - lastTime) / 1000;
       lastTime = currentTime;
-      
+
       setCurrentTime((time) => {
         // Stop at the end of the timeline
         if (time + delta >= duration) {
@@ -238,12 +238,12 @@ const Index = () => {
         }
         return time + delta;
       });
-      
+
       animationFrame = requestAnimationFrame(updateTime);
     };
-    
+
     animationFrame = requestAnimationFrame(updateTime);
-    
+
     return () => {
       cancelAnimationFrame(animationFrame);
     };
@@ -252,32 +252,32 @@ const Index = () => {
   // Handle export
   const handleExport = () => {
     setIsExporting(true);
-    
+
     // Use the browser's download dialog via anchor element
     const handleSaveAs = () => {
       const downloadLink = document.createElement('a');
       downloadLink.style.display = 'none';
-      
+
       // Create a fake file for demonstration
       // In a real app, this would be a real video file from the server
       const dummy = new Blob(['Example video data'], { type: 'video/mp4' });
       const url = URL.createObjectURL(dummy);
-      
+
       // This will open the browser's "Save As" dialog
       downloadLink.href = url;
       downloadLink.download = `${projectName.replace(/\s+/g, '-')}.mp4`;
-      
+
       document.body.appendChild(downloadLink);
       downloadLink.click();
       document.body.removeChild(downloadLink);
-      
+
       setTimeout(() => {
         URL.revokeObjectURL(url);
         setIsExporting(false);
         toast.success("Project exported successfully");
       }, 1500);
     };
-    
+
     handleSaveAs();
   };
 
@@ -289,7 +289,7 @@ const Index = () => {
     { id: "media", label: "Media", icon: ImageIcon },
     { id: "audio", label: "Audio", icon: AudioLines },
     { id: "crop", label: "Crop", icon: Crop },
-    { id: "uploads", label: "Uploads", icon: Upload },
+    // { id: "uploads", label: "Uploads", icon: Upload },
     { id: "tools", label: "Tools", icon: ImageIcon },
   ];
 
@@ -300,7 +300,7 @@ const Index = () => {
         return (
           <div className="flex flex-col gap-4 p-4">
             <MediaUploader onMediaUpload={handleMediaUpload} />
-            
+
             <Panel title="Media Library" className="flex-1" collapsible={isMobile}>
               {mediaItems.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-40 text-editor-muted">
@@ -332,12 +332,12 @@ const Index = () => {
             </Panel>
           </div>
         );
-        
+
       case "audio":
         return (
           <div className="flex flex-col gap-4 p-4">
             <AudioUploader onAudioUpload={handleAudioUpload} />
-            
+
             <Panel title="Audio Library" className="flex-1" collapsible={isMobile}>
               {audioItems.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-40 text-editor-muted">
@@ -366,8 +366,8 @@ const Index = () => {
                 </div>
               )}
             </Panel>
-            
-            <AudioControl 
+
+            <AudioControl
               elements={elements}
               selectedElementId={selectedElementId}
               onVolumeChange={updateElementVolume}
@@ -375,28 +375,28 @@ const Index = () => {
             />
           </div>
         );
-      
+
       case "text":
         return <TextEditor onAddText={handleAddText} />;
-        
+
       case "speed":
         return (
-          <SpeedControl 
+          <SpeedControl
             selectedElementId={selectedElementId}
             onSpeedChange={updateElementSpeed}
             elements={elements}
           />
         );
-        
+
       case "crop":
         return (
-          <CropTool 
+          <CropTool
             elements={elements}
             selectedElementId={selectedElementId}
             onCropApply={cropElement}
           />
         );
-        
+
       case "merge":
         return (
           <Panel title="Merge Videos" className="flex-1 m-4">
@@ -404,7 +404,7 @@ const Index = () => {
               <p className="text-sm text-editor-muted">
                 Select two videos from your timeline or media library to merge them together.
               </p>
-              
+
               <div className="bg-editor-border/30 p-3 rounded-md">
                 <h4 className="text-sm font-medium mb-2">Selected Videos ({selectedVideosForMerge.length}/2)</h4>
                 {selectedVideosForMerge.length === 0 ? (
@@ -423,7 +423,7 @@ const Index = () => {
                           <div className="flex-1 min-w-0">
                             <p className="text-xs font-medium truncate">{element.name}</p>
                           </div>
-                          <button 
+                          <button
                             className="text-red-500 hover:text-red-600"
                             onClick={() => setSelectedVideosForMerge(prev => prev.filter(i => i !== id))}
                           >
@@ -435,13 +435,12 @@ const Index = () => {
                   </div>
                 )}
               </div>
-              
+
               <button
-                className={`w-full py-2 rounded-md text-white font-medium ${
-                  selectedVideosForMerge.length === 2 
-                    ? 'bg-editor-accent hover:bg-editor-accent/90' 
-                    : 'bg-editor-border/50 cursor-not-allowed'
-                }`}
+                className={`w-full py-2 rounded-md text-white font-medium ${selectedVideosForMerge.length === 2
+                  ? 'bg-editor-accent hover:bg-editor-accent/90'
+                  : 'bg-editor-border/50 cursor-not-allowed'
+                  }`}
                 disabled={selectedVideosForMerge.length !== 2}
                 onClick={handleMergeVideos}
               >
@@ -453,7 +452,7 @@ const Index = () => {
             </div>
           </Panel>
         );
-        
+
       default:
         return (
           <div className="flex flex-col gap-4 p-4">
@@ -472,7 +471,7 @@ const Index = () => {
     return (
       <div className="bg-gray-50 border-r border-editor-border w-[60px] flex flex-col overflow-hidden">
         {sidebarItems.map((item) => (
-          <div 
+          <div
             key={item.id}
             className={`flex flex-col items-center justify-center p-2 cursor-pointer hover:bg-gray-100 transition-colors ${activePanel === item.id ? 'bg-gray-100' : ''}`}
             onClick={() => setActivePanel(item.id)}
@@ -510,16 +509,16 @@ const Index = () => {
         isSaved={isSaved}
         currentTime={currentTime}
       />
-      
+
       <div className="flex-1 flex overflow-hidden">
         {/* Left sidebar */}
         {renderSidebar()}
-        
+
         {/* Left Panel */}
         <div className={`${activePanel ? 'w-[260px]' : 'w-0'} border-r border-editor-border overflow-y-auto bg-white transition-all duration-300`}>
           {renderActivePanel()}
         </div>
-        
+
         {/* Main Canvas Area */}
         <div className="flex-1 flex flex-col overflow-hidden">
           <div className="flex items-center justify-between bg-gray-100 p-2 border-b border-editor-border">
@@ -538,7 +537,7 @@ const Index = () => {
               </div>
             </div>
           </div>
-          
+
           <div className="flex-1 flex justify-center items-center bg-gray-200 p-4 overflow-auto">
             {activePanel !== null ? (
               <div className="bg-white rounded-md border border-purple-400 shadow-lg overflow-hidden">
@@ -551,6 +550,7 @@ const Index = () => {
                   onElementMove={updateElementPosition}
                   onElementResize={updateElementDimensions}
                   currentTime={currentTime}
+                  isPlaying={isPlaying}
                 />
               </div>
             ) : (
@@ -568,7 +568,7 @@ const Index = () => {
               </div>
             )}
           </div>
-          
+
           <div className="bg-white border-t border-editor-border">
             <Timeline
               clips={elements.map((el) => ({

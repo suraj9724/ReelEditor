@@ -1,7 +1,6 @@
-
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
-import { Maximize, Minimize, ZoomIn, ZoomOut } from "lucide-react";
+import { Maximize, Minimize, ZoomIn, ZoomOut, Trash2 } from "lucide-react";
 import IconButton from "../UI/IconButton";
 import { CanvasElement } from "@/types/timeline";
 
@@ -13,7 +12,9 @@ interface CanvasProps {
   onElementSelect: (id: string | null) => void;
   onElementMove: (id: string, x: number, y: number) => void;
   onElementResize: (id: string, width: number, height: number) => void;
+  onElementDelete?: (id: string) => void;
   currentTime: number;
+  isPlaying: boolean;
 }
 
 const Canvas = ({
@@ -24,7 +25,9 @@ const Canvas = ({
   onElementSelect,
   onElementMove,
   onElementResize,
+  onElementDelete,
   currentTime,
+  isPlaying,
 }: CanvasProps) => {
   const canvasRef = useRef<HTMLDivElement>(null);
   const videoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
@@ -34,6 +37,23 @@ const Canvas = ({
   const [resizeDirection, setResizeDirection] = useState<string | null>(null);
   const [dragStartPos, setDragStartPos] = useState({ x: 0, y: 0 });
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isCropping, setIsCropping] = useState(false);
+  const [cropStart, setCropStart] = useState({ x: 0, y: 0 });
+  const [cropArea, setCropArea] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const [selectedAspectRatio, setSelectedAspectRatio] = useState<string | null>("freeform");
+
+  // Aspect ratio options
+  const aspectRatioOptions = {
+    "freeform": null,
+    "1:1": 1,
+    "16:9": 16 / 9,
+    "9:16": 9 / 16,
+    "5:4": 5 / 4,
+    "4:5": 4 / 5,
+    "4:3": 4 / 3,
+    "3:4": 3 / 4,
+    "3:2": 3 / 2,
+  };
 
   // Filter elements for current time
   const visibleElements = elements.filter(
@@ -47,13 +67,27 @@ const Canvas = ({
         const video = videoRefs.current[element.id];
         if (video) {
           // Only update time if it differs significantly to avoid playback issues
-          if (Math.abs(video.currentTime - (currentTime - element.start)) > 0.2) {
-            video.currentTime = currentTime - element.start;
+          const targetTime = currentTime - element.start;
+          if (Math.abs(video.currentTime - targetTime) > 0.5) {
+            video.currentTime = targetTime;
+          }
+
+          // Handle play/pause based on isPlaying prop and time range
+          if (currentTime < element.start || currentTime > element.end) {
+            video.pause();
+          } else {
+            if (isPlaying) {
+              video.play().catch(() => {
+                // Ignore play errors (e.g., if video is already playing)
+              });
+            } else {
+              video.pause();
+            }
           }
         }
       }
     });
-  }, [currentTime, visibleElements]);
+  }, [currentTime, visibleElements, isPlaying]);
 
   // Handle element selection
   const handleElementClick = (
@@ -196,6 +230,127 @@ const Canvas = ({
     setIsFullscreen(!isFullscreen);
   };
 
+  // Handle element deletion
+  const handleDeleteElement = (e: React.MouseEvent<HTMLDivElement>, elementId: string) => {
+    e.stopPropagation();
+    if (onElementDelete) {
+      onElementDelete(elementId);
+      onElementSelect(null);
+    }
+  };
+
+  // Handle crop start
+  const handleCropStart = (e: React.MouseEvent<HTMLDivElement>, elementId: string) => {
+    e.stopPropagation();
+    if (e.button !== 0) return; // Only left mouse button
+
+    const element = elements.find((el) => el.id === elementId);
+    if (!element || element.type !== "video") return;
+
+    setIsCropping(true);
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 100;
+    const y = ((e.clientY - rect.top) / rect.height) * 100;
+
+    setCropStart({ x, y });
+    setCropArea({ x, y, width: 0, height: 0 });
+    onElementSelect(elementId);
+
+    // Add mousemove and mouseup listeners
+    document.addEventListener("mousemove", handleCropMove);
+    document.addEventListener("mouseup", handleCropEnd);
+  };
+
+  // Handle crop move
+  const handleCropMove = (e: MouseEvent) => {
+    if (!isCropping || !selectedElementId || !canvasRef.current) return;
+
+    const rect = canvasRef.current.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 100;
+    const y = ((e.clientY - rect.top) / rect.height) * 100;
+
+    if (cropArea) {
+      let width = Math.max(0, x - cropStart.x);
+      let height = Math.max(0, y - cropStart.y);
+
+      // Apply aspect ratio if selected
+      if (selectedAspectRatio && selectedAspectRatio !== "freeform") {
+        const ratio = aspectRatioOptions[selectedAspectRatio];
+        if (ratio) {
+          // Calculate which dimension to adjust based on mouse movement
+          const widthRatio = width / height;
+          if (widthRatio > ratio) {
+            // Width is too large, adjust height
+            height = width / ratio;
+          } else {
+            // Height is too large, adjust width
+            width = height * ratio;
+          }
+        }
+      }
+
+      setCropArea({
+        x: cropStart.x,
+        y: cropStart.y,
+        width,
+        height
+      });
+    }
+  };
+
+  // Handle crop end
+  const handleCropEnd = () => {
+    if (!isCropping || !selectedElementId || !cropArea) return;
+
+    const element = elements.find((el) => el.id === selectedElementId);
+    if (!element || element.type !== "video") return;
+
+    // Apply the crop
+    const crop = {
+      x: cropArea.x,
+      y: cropArea.y,
+      width: cropArea.width,
+      height: cropArea.height
+    };
+
+    // Update the element's content with the new crop
+    element.content = {
+      ...element.content,
+      crop
+    };
+
+    setIsCropping(false);
+    setCropArea(null);
+    document.removeEventListener("mousemove", handleCropMove);
+    document.removeEventListener("mouseup", handleCropEnd);
+  };
+
+  // Handle aspect ratio change
+  const handleAspectRatioChange = (ratio: string) => {
+    setSelectedAspectRatio(ratio);
+    if (cropArea) {
+      const currentRatio = cropArea.width / cropArea.height;
+      const targetRatio = aspectRatioOptions[ratio];
+
+      if (targetRatio) {
+        let newWidth = cropArea.width;
+        let newHeight = cropArea.height;
+
+        if (currentRatio > targetRatio) {
+          newHeight = newWidth / targetRatio;
+        } else {
+          newWidth = newHeight * targetRatio;
+        }
+
+        setCropArea({
+          ...cropArea,
+          width: newWidth,
+          height: newHeight
+        });
+      }
+    }
+  };
+
   // Cleanup event listeners on unmount
   useEffect(() => {
     return () => {
@@ -203,6 +358,8 @@ const Canvas = ({
       document.removeEventListener("mouseup", handleMouseUp);
       document.removeEventListener("mousemove", handleResizeMove);
       document.removeEventListener("mouseup", handleResizeEnd);
+      document.removeEventListener("mousemove", handleCropMove);
+      document.removeEventListener("mouseup", handleCropEnd);
     };
   }, []);
 
@@ -242,7 +399,7 @@ const Canvas = ({
       <div className="flex-1 flex items-center justify-center bg-[#1E1E1E] rounded-lg overflow-hidden">
         <div
           ref={canvasRef}
-          className="relative bg-black w-full h-full flex items-center justify-center"
+          className="relative w-full h-full flex items-center justify-center"
           onClick={handleCanvasClick}
         >
           <div
@@ -260,7 +417,7 @@ const Canvas = ({
                 className={cn(
                   "absolute canvas-element cursor-move",
                   selectedElementId === element.id &&
-                    "ring-2 ring-editor-accent ring-offset-1"
+                  "ring-2 ring-editor-accent ring-offset-1"
                 )}
                 style={{
                   left: element.x,
@@ -271,7 +428,13 @@ const Canvas = ({
                   zIndex: selectedElementId === element.id ? 10 : 1,
                 }}
                 onClick={(e) => handleElementClick(e, element.id)}
-                onMouseDown={(e) => handleElementDragStart(e, element.id)}
+                onMouseDown={(e) => {
+                  if (element.type === "video" && selectedElementId === element.id) {
+                    handleCropStart(e, element.id);
+                  } else {
+                    handleElementDragStart(e, element.id);
+                  }
+                }}
               >
                 {element.type === "text" && (
                   <div
@@ -289,44 +452,99 @@ const Canvas = ({
                 )}
 
                 {element.type === "image" && (
-                  <img
-                    src={element.content.src}
-                    alt="Canvas image"
-                    className="w-full h-full object-contain pointer-events-none"
-                  />
+                  <div className="w-full h-full overflow-hidden">
+                    <img
+                      src={element.content.src}
+                      alt="Canvas image"
+                      className="w-full h-full object-cover pointer-events-none"
+                      style={{
+                        transform: element.content.crop ?
+                          `translate(
+                            ${-element.content.crop.x}%, 
+                            ${-element.content.crop.y}%
+                          )` : 'none'
+                      }}
+                    />
+                  </div>
                 )}
 
                 {element.type === "video" && (
-                  <video
-                    ref={(el) => (videoRefs.current[element.id] = el)}
-                    src={element.content.src}
-                    className="w-full h-full object-contain pointer-events-none"
-                    muted
-                    autoPlay={false}
-                    loop={false}
-                    playsInline
-                    preload="auto"
-                  />
+                  <div className="w-full h-full overflow-hidden flex items-center justify-center bg-transparent">
+                    <video
+                      ref={(el) => (videoRefs.current[element.id] = el)}
+                      src={element.content.src}
+                      className="w-full h-full object-contain pointer-events-none"
+                      style={{
+                        transform: isCropping && selectedElementId === element.id && cropArea ?
+                          `translate(
+                            ${-cropArea.x}%, 
+                            ${-cropArea.y}%
+                          ) scale(${100 / cropArea.width}, ${100 / cropArea.height})` :
+                          element.content.crop ?
+                            `translate(
+                              ${-element.content.crop.x}%, 
+                              ${-element.content.crop.y}%
+                            ) scale(${100 / element.content.crop.width}, ${100 / element.content.crop.height})` : 'none'
+                      }}
+                      muted
+                      autoPlay={false}
+                      loop={false}
+                      playsInline
+                      preload="metadata"
+                    />
+                    {isCropping && selectedElementId === element.id && cropArea && (
+                      <>
+                        <div
+                          className="absolute border-2 border-white cursor-crosshair"
+                          style={{
+                            left: `${cropArea.x}%`,
+                            top: `${cropArea.y}%`,
+                            width: `${cropArea.width}%`,
+                            height: `${cropArea.height}%`,
+                          }}
+                        />
+                        <div className="absolute top-0 left-0 w-full h-full pointer-events-none">
+                          <div className="absolute inset-0 bg-black/50" style={{
+                            clipPath: `inset(
+                              ${cropArea.y}% 
+                              ${100 - cropArea.x - cropArea.width}% 
+                              ${100 - cropArea.y - cropArea.height}% 
+                              ${cropArea.x}%
+                            )`
+                          }} />
+                        </div>
+                      </>
+                    )}
+                  </div>
                 )}
 
                 {selectedElementId === element.id && (
                   <>
-                    <div 
+                    <div
                       className="absolute top-0 left-0 w-3 h-3 bg-white border border-editor-accent rounded-full cursor-nw-resize -translate-x-1/2 -translate-y-1/2"
                       onMouseDown={(e) => handleResizeStart(e, element.id, 'nw')}
                     />
-                    <div 
+                    <div
                       className="absolute top-0 right-0 w-3 h-3 bg-white border border-editor-accent rounded-full cursor-ne-resize translate-x-1/2 -translate-y-1/2"
                       onMouseDown={(e) => handleResizeStart(e, element.id, 'ne')}
                     />
-                    <div 
+                    <div
                       className="absolute bottom-0 left-0 w-3 h-3 bg-white border border-editor-accent rounded-full cursor-sw-resize -translate-x-1/2 translate-y-1/2"
                       onMouseDown={(e) => handleResizeStart(e, element.id, 'sw')}
                     />
-                    <div 
+                    <div
                       className="absolute bottom-0 right-0 w-3 h-3 bg-white border border-editor-accent rounded-full cursor-se-resize translate-x-1/2 translate-y-1/2"
                       onMouseDown={(e) => handleResizeStart(e, element.id, 'se')}
                     />
+                    {onElementDelete && (
+                      <div
+                        className="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-red-500 text-white p-1 rounded cursor-pointer hover:bg-red-600 transition-colors"
+                        onClick={(e) => handleDeleteElement(e, element.id)}
+                        title={`Delete ${element.type}`}
+                      >
+                        <Trash2 size={16} />
+                      </div>
+                    )}
                   </>
                 )}
               </div>
