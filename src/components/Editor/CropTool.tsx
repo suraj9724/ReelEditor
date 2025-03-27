@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Crop, RotateCcw, Check, X } from "lucide-react";
 import { TimelineElement } from "@/types/timeline";
 import Panel from "../UI/Panel";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/UI/button";
 import { Slider } from "@/components/UI/slider";
 import { toast } from "sonner";
 import { AspectRatio } from "@/components/UI/aspect-ratio";

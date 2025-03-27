@@ -1,5 +1,5 @@
 
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/UI/button";
 import {
   ChevronDown,
   Scissors,
@@ -51,7 +51,7 @@ const Toolbar = ({
   onMergeVideos,
 }: ToolbarProps) => {
   const isMobile = useIsMobile();
-  
+
   const tools = [
     { id: "trim" as ToolType, icon: Scissors, label: "Trim" },
     { id: "text" as ToolType, icon: Type, label: "Text" },
@@ -102,7 +102,7 @@ const Toolbar = ({
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-48">
                 {moreTools.map((tool) => (
-                  <DropdownMenuItem 
+                  <DropdownMenuItem
                     key={tool.id}
                     onClick={() => setActiveTool(tool.id)}
                   >
@@ -167,7 +167,7 @@ const Toolbar = ({
           <IconButton
             icon={PictureInPicture}
             tooltip="Detach Preview"
-            onClick={() => {}}
+            onClick={() => { }}
           />
         )}
       </div>

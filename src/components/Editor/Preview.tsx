@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import {
   Play,
   Pause,
@@ -20,6 +20,7 @@ interface PreviewProps {
   onTimeUpdate: (time: number) => void;
   onRestart: () => void;
   elements: TimelineElement[];
+  selectedElementId: string | null;
 }
 
 const Preview = ({
@@ -31,6 +32,7 @@ const Preview = ({
   onTimeUpdate,
   onRestart,
   elements,
+  selectedElementId,
 }: PreviewProps) => {
   const [volume, setVolume] = useState(100);
   const [isMuted, setIsMuted] = useState(false);
@@ -49,6 +51,24 @@ const Preview = ({
     return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
   };
 
+  // Find the selected element
+  const selectedElement = selectedElementId
+    ? elements.find(el => el.id === selectedElementId)
+    : null;
+
+  // Update volume and mute state when selected element changes
+  useEffect(() => {
+    if (selectedElement) {
+      if (selectedElement.type === 'audio' || selectedElement.type === 'video') {
+        const elementVolume = selectedElement.content.volume !== undefined
+          ? selectedElement.content.volume * 100
+          : 100;
+        setVolume(elementVolume);
+        setIsMuted(selectedElement.content.muted || false);
+      }
+    }
+  }, [selectedElement]);
+
   // Find active audio elements at current time
   useEffect(() => {
     const activeAudioElements = elements.filter(
@@ -57,159 +77,78 @@ const Preview = ({
         currentTime <= el.end
     );
 
-    console.log(`Active audio elements at time ${currentTime}:`, activeAudioElements.length);
+    // Update active audio elements
     activeAudioElementsRef.current = activeAudioElements;
 
-    // Create new audio elements for newly active audio clips
+    // Create or update audio elements
     activeAudioElements.forEach(audio => {
-      if (!audioRefs.current[audio.id]) {
-        console.log("Creating audio element for", audio.id, audio.content.src);
-        const audioElement = new Audio(audio.content.src);
+      let audioElement = audioRefs.current[audio.id];
 
-        // Add error handling for audio loading
+      if (!audioElement) {
+        console.log("Creating new audio element:", audio.id);
+        audioElement = new Audio(audio.content.src);
+        audioRefs.current[audio.id] = audioElement;
+
+        // Set up event handlers
         audioElement.onerror = (e) => {
           console.error("Error loading audio:", e);
-          console.error("Audio source:", audio.content.src);
         };
 
         audioElement.oncanplaythrough = () => {
-          console.log("Audio can play through:", audio.id);
+          console.log("Audio ready to play:", audio.id);
         };
 
-        // Enable audio
-        audioElement.muted = false;
-        audioElement.volume = audio.content.volume !== undefined ? audio.content.volume : volume / 100;
+        // Set initial volume and mute state
+        audioElement.volume = audio.content.volume !== undefined ? audio.content.volume : 1.0;
+        audioElement.muted = audio.content.muted || false;
+      }
 
-        // Calculate time within the audio clip
-        const audioLocalTime = Math.max(0, currentTime - audio.start);
+      // Update volume and mute state based on selected element
+      if (selectedElement && selectedElement.id === audio.id) {
+        audioElement.volume = volume / 100;
+        audioElement.muted = isMuted;
+      } else {
+        audioElement.volume = audio.content.volume !== undefined ? audio.content.volume : 1.0;
+        audioElement.muted = audio.content.muted || false;
+      }
+
+      // Calculate time within the audio clip
+      const audioLocalTime = Math.max(0, currentTime - audio.start);
+
+      // Only update time if it's significantly different
+      if (Math.abs(audioElement.currentTime - audioLocalTime) > 0.2) {
         audioElement.currentTime = audioLocalTime;
+      }
 
-        audioRefs.current[audio.id] = audioElement;
-
-        // Immediately play if timeline is playing
-        if (isPlaying) {
+      // Handle playback state
+      if (isPlaying) {
+        if (audioElement.paused) {
+          console.log("Starting audio playback:", audio.id);
           const playPromise = audioElement.play();
           if (playPromise !== undefined) {
             playPromise.catch(error => {
               console.error("Error playing audio:", error);
-              console.error("Audio element state:", {
-                id: audio.id,
-                src: audio.content.src,
-                volume: audioElement.volume,
-                muted: audioElement.muted,
-                currentTime: audioElement.currentTime
-              });
             });
           }
+        }
+      } else {
+        if (!audioElement.paused) {
+          console.log("Pausing audio playback:", audio.id);
+          audioElement.pause();
         }
       }
     });
 
-    // Cleanup audio elements that aren't active anymore
+    // Cleanup removed audio elements
     Object.keys(audioRefs.current).forEach(id => {
       if (!activeAudioElements.some(a => a.id === id)) {
-        console.log("Removing audio element", id);
+        console.log("Removing audio element:", id);
         const audio = audioRefs.current[id];
         audio.pause();
         delete audioRefs.current[id];
       }
     });
-  }, [elements, currentTime, isPlaying, volume]);
-
-  // Synchronize audio playback with current time
-  useEffect(() => {
-    if (Math.abs(currentTime - lastTimeRef.current) > 0.1) {
-      activeAudioElementsRef.current.forEach(audio => {
-        const audioElement = audioRefs.current[audio.id];
-        if (audioElement) {
-          // Calculate time within the audio clip
-          const audioLocalTime = Math.max(0, currentTime - audio.start);
-
-          // Only update if difference is significant
-          if (Math.abs(audioElement.currentTime - audioLocalTime) > 0.2) {
-            console.log("Updating audio time for", audio.id, "to", audioLocalTime);
-            audioElement.currentTime = audioLocalTime;
-          }
-        }
-      });
-    }
-    lastTimeRef.current = currentTime;
-  }, [currentTime]);
-
-  // Control audio playback with isPlaying state
-  useEffect(() => {
-    console.log("Audio playback state changed:", isPlaying, "Active audio elements:", activeAudioElementsRef.current.length);
-
-    activeAudioElementsRef.current.forEach(audio => {
-      const audioElement = audioRefs.current[audio.id];
-      if (!audioElement) return;
-
-      // Calculate final volume and mute state
-      const finalVolume = (audio.content.volume !== undefined ? audio.content.volume : 1.0) * (volume / 100);
-      const finalMuted = isMuted || (audio.content.muted || false);
-
-      // Apply volume and mute state
-      audioElement.volume = finalVolume;
-      audioElement.muted = finalMuted;
-
-      console.log(`Audio ${audio.id} state:`, {
-        volume: finalVolume,
-        muted: finalMuted,
-        isPlaying
-      });
-
-      if (isPlaying) {
-        console.log("Playing audio", audio.id);
-        const playPromise = audioElement.play();
-        if (playPromise !== undefined) {
-          playPromise.catch(error => {
-            console.error("Error playing audio:", error);
-            console.error("Audio element state:", {
-              id: audio.id,
-              src: audio.content.src,
-              volume: audioElement.volume,
-              muted: audioElement.muted,
-              currentTime: audioElement.currentTime
-            });
-          });
-        }
-      } else {
-        console.log("Pausing audio", audio.id);
-        audioElement.pause();
-      }
-    });
-  }, [isPlaying, isMuted, volume]);
-
-  // Apply volume changes to all audio elements
-  useEffect(() => {
-    activeAudioElementsRef.current.forEach(audio => {
-      const audioElement = audioRefs.current[audio.id];
-      if (!audioElement) return;
-
-      // Calculate final volume and mute state
-      const finalVolume = (audio.content.volume !== undefined ? audio.content.volume : 1.0) * (volume / 100);
-      const finalMuted = isMuted || (audio.content.muted || false);
-
-      // Apply volume and mute state
-      audioElement.volume = finalVolume;
-      audioElement.muted = finalMuted;
-
-      console.log(`Updated volume for audio ${audio.id}:`, {
-        volume: finalVolume,
-        muted: finalMuted
-      });
-    });
-  }, [volume, isMuted]);
-
-  // Cleanup audio elements on unmount
-  useEffect(() => {
-    return () => {
-      Object.values(audioRefs.current).forEach(audio => {
-        audio.pause();
-      });
-      audioRefs.current = {};
-    };
-  }, []);
+  }, [elements, currentTime, isPlaying, volume, isMuted, selectedElement]);
 
   // Handle video element changes with optimized event handling
   useEffect(() => {
@@ -264,8 +203,14 @@ const Preview = ({
         }
       }
 
-      // Ensure video isn't muted unless explicitly set
-      videoElement.muted = isMuted;
+      // Update video audio state based on selected element
+      if (selectedElement && selectedElement.type === 'video' && selectedElement.id === videoElement.id) {
+        videoElement.volume = volume / 100;
+        videoElement.muted = isMuted;
+      } else {
+        videoElement.volume = selectedElement?.content.volume !== undefined ? selectedElement.content.volume : 1.0;
+        videoElement.muted = selectedElement?.content.muted || false;
+      }
 
       // Use play() and catch any errors
       const playPromise = videoElement.play();
@@ -278,33 +223,33 @@ const Preview = ({
     } else {
       videoElement.pause();
     }
-  }, [isPlaying, onPause, videoEnded, currentTime, duration, onTimeUpdate, isMuted]);
-
-  // Optimized time synchronization
-  useEffect(() => {
-    const videoElement = videoRef.current;
-    if (!videoElement) return;
-
-    // Prevent excessive updates by only updating when the difference is significant
-    if (Math.abs(videoElement.currentTime - currentTime) > 0.2) {
-      timeUpdateBlocker.current = true;
-      videoElement.currentTime = currentTime;
-
-      // Reset blocker after a small delay to prevent event loop
-      setTimeout(() => {
-        timeUpdateBlocker.current = false;
-      }, 50);
-    }
-  }, [currentTime]);
+  }, [isPlaying, onPause, videoEnded, currentTime, duration, onTimeUpdate, volume, isMuted, selectedElement]);
 
   // Apply volume change to video
   useEffect(() => {
     const videoElement = videoRef.current;
     if (!videoElement) return;
 
+    // Update volume and mute state
     videoElement.volume = volume / 100;
     videoElement.muted = isMuted;
-  }, [volume, isMuted]);
+
+    // If we're playing, ensure the video continues playing after volume change
+    if (isPlaying && videoElement.paused) {
+      const playPromise = videoElement.play();
+      if (playPromise !== undefined) {
+        playPromise.catch(error => {
+          console.error("Error playing video after volume change:", error);
+        });
+      }
+    }
+
+    console.log("Video audio state:", {
+      volume: videoElement.volume,
+      muted: videoElement.muted,
+      isPlaying: !videoElement.paused
+    });
+  }, [volume, isMuted, isPlaying]);
 
   // Find the video element to display
   const videoElement = elements.find(
@@ -365,6 +310,14 @@ const Preview = ({
     console.log("Audio elements in refs:", Object.keys(audioRefs.current));
   };
 
+  const toggleMute = useCallback(() => {
+    setIsMuted(!isMuted);
+  }, [isMuted]);
+
+  const handleVolumeChange = useCallback((value: number[]) => {
+    setVolume(value[0]);
+  }, []);
+
   return (
     <div className="panel w-full h-full flex flex-col">
       <div className="relative flex-1 bg-black overflow-hidden rounded">
@@ -378,6 +331,7 @@ const Preview = ({
               preload="auto"
               style={getVideoStyle()}
               onError={(e) => console.error("Video error:", e)}
+              muted={isMuted}
             />
 
             {isBuffering && (
@@ -488,7 +442,7 @@ const Preview = ({
             <div className="relative">
               <IconButton
                 icon={isMuted ? VolumeX : Volume2}
-                onClick={() => setIsMuted(!isMuted)}
+                onClick={toggleMute}
                 onMouseEnter={() => setShowVolumeControl(true)}
                 onMouseLeave={() => setShowVolumeControl(false)}
                 tooltip="Volume"
@@ -504,7 +458,9 @@ const Preview = ({
                     min={0}
                     max={100}
                     step={1}
-                    onValueChange={(value) => setVolume(value[0])}
+                    onValueChange={handleVolumeChange}
+                    disabled={isMuted}
+                    className={isMuted ? "opacity-50" : ""}
                   />
                 </div>
               )}

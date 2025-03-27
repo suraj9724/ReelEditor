@@ -2,14 +2,12 @@ import { useRef, useState, useEffect } from "react";
 import {
   Play,
   Pause,
-  SkipBack,
-  SkipForward,
   ChevronUp,
   ChevronDown,
   Plus,
   Minus,
-  Scissors,
   Trash2,
+  Scissors,
 } from "lucide-react";
 import IconButton from "../UI/IconButton";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -54,14 +52,11 @@ const Timeline = ({
   onDeleteClip,
 }: TimelineProps) => {
   const [isExpanded, setIsExpanded] = useState(true);
+  const [timelineHeight, setTimelineHeight] = useState(256);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; clipId: string } | null>(null);
   const [isTrimming, setIsTrimming] = useState(false);
   const [trimSide, setTrimSide] = useState<"start" | "end" | null>(null);
-  const [selectionStart, setSelectionStart] = useState<number | null>(null);
-  const [selectionEnd, setSelectionEnd] = useState<number | null>(null);
-  const [showSelectionTooltip, setShowSelectionTooltip] = useState(false);
-  const [timelineHeight, setTimelineHeight] = useState(256); // Default height
   const timelineRef = useRef<HTMLDivElement>(null);
-  const selectionRef = useRef<HTMLDivElement>(null);
   const resizeRef = useRef<HTMLDivElement>(null);
   const isMobile = useIsMobile();
 
@@ -80,122 +75,6 @@ const Timeline = ({
     const newTime = (offsetX / rect.width) * duration;
 
     onTimeUpdate(Math.max(0, Math.min(newTime, duration)));
-  };
-
-  const handleTrimStart = (clipId: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setIsTrimming(true);
-    setTrimSide("start");
-    onClipSelect(clipId);
-  };
-
-  const handleTrimEnd = (clipId: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setIsTrimming(true);
-    setTrimSide("end");
-    onClipSelect(clipId);
-  };
-
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (!timelineRef.current) return;
-
-    // Get current mouse position on timeline
-    const rect = timelineRef.current.getBoundingClientRect();
-    const offsetX = e.clientX - rect.left;
-    const currentPoint = (offsetX / rect.width) * duration;
-    const clampedPoint = Math.max(0, Math.min(currentPoint, duration));
-
-    // Update hover time indicator
-    const hoverTimeEl = document.getElementById('hover-time');
-    if (hoverTimeEl) {
-      hoverTimeEl.style.left = `${offsetX}px`;
-      hoverTimeEl.textContent = formatTime(clampedPoint);
-      hoverTimeEl.style.display = 'block';
-    }
-
-    // Handle selection area or trimming
-    if (isTrimming && selectedClipId) {
-      const clip = clips.find(c => c.id === selectedClipId);
-      if (!clip) return;
-
-      if (trimSide === "start") {
-        if (clampedPoint >= clip.end - 0.5) return; // Minimum clip duration
-        if (onTrimClip) onTrimClip(selectedClipId, clampedPoint, clip.end);
-      } else if (trimSide === "end") {
-        if (clampedPoint <= clip.start + 0.5) return; // Minimum clip duration
-        if (onTrimClip) onTrimClip(selectedClipId, clip.start, clampedPoint);
-      }
-    } else if (selectionStart !== null) {
-      // Update selection area
-      setSelectionEnd(clampedPoint);
-      setShowSelectionTooltip(true);
-    }
-  };
-
-  const handleMouseDown = (e: React.MouseEvent) => {
-    // Start selection if not clicking on a clip
-    if (e.target === timelineRef.current || (e.target as HTMLElement).classList.contains('timeline-tracks')) {
-      const rect = timelineRef.current!.getBoundingClientRect();
-      const offsetX = e.clientX - rect.left;
-      const startPoint = (offsetX / rect.width) * duration;
-      setSelectionStart(Math.max(0, Math.min(startPoint, duration)));
-      setSelectionEnd(null);
-    }
-  };
-
-  const handleMouseUp = () => {
-    if (selectionStart !== null && selectionEnd !== null) {
-      // Sort the selection points
-      const start = Math.min(selectionStart, selectionEnd);
-      const end = Math.max(selectionStart, selectionEnd);
-
-      // If the selection is very small, it might be a click rather than a selection
-      if (Math.abs(end - start) < 0.1) {
-        setSelectionStart(null);
-        setSelectionEnd(null);
-        setShowSelectionTooltip(false);
-        setIsTrimming(false);
-        setTrimSide(null);
-        return;
-      }
-
-      // Show tooltip with trim options
-      setShowSelectionTooltip(true);
-    } else {
-      setIsTrimming(false);
-      setTrimSide(null);
-    }
-  };
-
-  const handleMouseLeave = () => {
-    // Hide hover time indicator
-    const hoverTimeEl = document.getElementById('hover-time');
-    if (hoverTimeEl) {
-      hoverTimeEl.style.display = 'none';
-    }
-
-    if (!showSelectionTooltip) {
-      setSelectionStart(null);
-      setSelectionEnd(null);
-    }
-
-    setIsTrimming(false);
-    setTrimSide(null);
-  };
-
-  const applySelectionToClip = () => {
-    if (selectedClipId && selectionStart !== null && selectionEnd !== null && onTrimClip) {
-      const start = Math.min(selectionStart, selectionEnd);
-      const end = Math.max(selectionStart, selectionEnd);
-      onTrimClip(selectedClipId, start, end);
-      clearSelection();
-    }
-  };
-
-  const clearSelection = () => {
-    setSelectionStart(null);
-    setSelectionEnd(null);
-    setShowSelectionTooltip(false);
   };
 
   // Initialize resize functionality
@@ -249,27 +128,98 @@ const Timeline = ({
     };
   };
 
-  // Selection area style
-  const selectionStyle = selectionStart !== null && selectionEnd !== null ? {
-    left: `${Math.min(selectionStart, selectionEnd) * pixelsPerSecond}px`,
-    width: `${Math.abs(selectionEnd - selectionStart) * pixelsPerSecond}px`,
-    display: 'block'
-  } : { display: 'none' };
-
-  useEffect(() => {
-    // Clean up selection when selected clip changes
-    if (selectedClipId) {
-      clearSelection();
-    }
-  }, [selectedClipId]);
-
-  // Handle clip deletion
-  const handleDeleteClip = (e: React.MouseEvent, clipId: string) => {
+  // Handle context menu
+  const handleContextMenu = (e: React.MouseEvent, clipId: string) => {
+    e.preventDefault();
     e.stopPropagation();
+    setContextMenu({ x: e.clientX, y: e.clientY, clipId });
+  };
+
+  // Close context menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = () => {
+      setContextMenu(null);
+    };
+
+    document.addEventListener('click', handleClickOutside);
+    return () => {
+      document.removeEventListener('click', handleClickOutside);
+    };
+  }, []);
+
+  // Handle clip deletion from context menu
+  const handleContextMenuDelete = (clipId: string) => {
     if (onDeleteClip) {
+      // Find the deleted clip to get its start time and duration
+      const deletedClip = clips.find(c => c.id === clipId);
+      if (!deletedClip) return;
+
+      // Get all clips that come after the deleted clip
+      const clipsToReposition = clips.filter(c => c.start > deletedClip.start);
+
+      // Calculate the duration of the deleted clip
+      const deletedDuration = deletedClip.end - deletedClip.start;
+
+      // Reposition each subsequent clip
+      clipsToReposition.forEach(clip => {
+        // Update the clip's start and end times
+        const newStart = clip.start - deletedDuration;
+        const newEnd = clip.end - deletedDuration;
+
+        // Update the clip's position in the timeline
+        if (onTrimClip) {
+          onTrimClip(clip.id, newStart, newEnd);
+        }
+      });
+
+      // Delete the clip
       onDeleteClip(clipId);
       onClipSelect(null);
+      setContextMenu(null);
     }
+  };
+
+  const handleTrimStart = (clipId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsTrimming(true);
+    setTrimSide("start");
+    onClipSelect(clipId);
+  };
+
+  const handleTrimEnd = (clipId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsTrimming(true);
+    setTrimSide("end");
+    onClipSelect(clipId);
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!timelineRef.current) return;
+
+    // Get current mouse position on timeline
+    const rect = timelineRef.current.getBoundingClientRect();
+    const offsetX = e.clientX - rect.left;
+    const currentPoint = (offsetX / rect.width) * duration;
+    const clampedPoint = Math.max(0, Math.min(currentPoint, duration));
+
+    // Handle trimming
+    if (isTrimming && selectedClipId) {
+      const clip = clips.find(c => c.id === selectedClipId);
+      if (!clip) return;
+
+      if (trimSide === "start") {
+        if (clampedPoint >= clip.end - 0.5) return; // Minimum clip duration
+        if (onTrimClip) onTrimClip(selectedClipId, clampedPoint, clip.end);
+      } else if (trimSide === "end") {
+        if (clampedPoint <= clip.start + 0.5) return; // Minimum clip duration
+        if (onTrimClip) onTrimClip(selectedClipId, clip.start, clampedPoint);
+      }
+    }
+  };
+
+  const handleMouseUp = () => {
+    setIsTrimming(false);
+    setTrimSide(null);
   };
 
   return (
@@ -342,13 +292,6 @@ const Timeline = ({
                     )}
                   </div>
                 ))}
-
-                {/* Hover time indicator */}
-                <div
-                  id="hover-time"
-                  className="absolute bottom-full transform -translate-x-1/2 bg-black text-white text-xs px-1 py-0.5 rounded pointer-events-none hidden"
-                  style={{ zIndex: 30 }}
-                ></div>
               </div>
             </div>
 
@@ -359,9 +302,7 @@ const Timeline = ({
               style={{ width: `${duration * pixelsPerSecond}px` }}
               onClick={handleTimelineClick}
               onMouseMove={handleMouseMove}
-              onMouseDown={handleMouseDown}
               onMouseUp={handleMouseUp}
-              onMouseLeave={handleMouseLeave}
             >
               {/* Time markers every second */}
               {Array.from({ length: Math.ceil(duration) }).map((_, i) => (
@@ -381,35 +322,6 @@ const Timeline = ({
                 <div className="absolute top-4 left-0 transform -translate-x-1/2 bg-editor-accent text-white text-xs px-1 py-0.5 rounded-sm">
                   {formatTime(currentTime)}
                 </div>
-              </div>
-
-              {/* Selection area */}
-              <div
-                ref={selectionRef}
-                className="absolute top-0 bottom-0 bg-editor-accent/20 border border-editor-accent z-5"
-                style={selectionStyle}
-              >
-                {showSelectionTooltip && selectionStart !== null && selectionEnd !== null && (
-                  <div className="absolute top-1 left-1/2 transform -translate-x-1/2 bg-white shadow-md rounded p-2 z-20 flex flex-col gap-1">
-                    <div className="text-xs text-center">
-                      {formatTime(Math.min(selectionStart, selectionEnd))} - {formatTime(Math.max(selectionStart, selectionEnd))}
-                    </div>
-                    {selectedClipId && (
-                      <button
-                        className="text-xs bg-editor-accent text-white px-2 py-1 rounded hover:bg-editor-accent/90"
-                        onClick={applySelectionToClip}
-                      >
-                        Apply to Selected Clip
-                      </button>
-                    )}
-                    <button
-                      className="text-xs bg-gray-100 px-2 py-1 rounded hover:bg-gray-200"
-                      onClick={clearSelection}
-                    >
-                      Clear
-                    </button>
-                  </div>
-                )}
               </div>
 
               {/* Track backgrounds */}
@@ -438,6 +350,7 @@ const Timeline = ({
                     e.stopPropagation();
                     onClipSelect(clip.id);
                   }}
+                  onContextMenu={(e) => handleContextMenu(e, clip.id)}
                 >
                   <div className="flex items-center gap-2 overflow-hidden w-full">
                     {clip.thumbnail && (
@@ -458,7 +371,10 @@ const Timeline = ({
                   {selectedClipId === clip.id && onDeleteClip && (
                     <div
                       className="absolute -top-8 right-0 bg-red-500 text-white p-1 rounded cursor-pointer hover:bg-red-600 transition-colors"
-                      onClick={(e) => handleDeleteClip(e, clip.id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleContextMenu(e, clip.id);
+                      }}
                       title="Delete clip"
                     >
                       <Trash2 size={14} />
@@ -484,6 +400,22 @@ const Timeline = ({
           </div>
         )}
       </div>
+
+      {/* Context Menu */}
+      {contextMenu && (
+        <div
+          className="fixed bg-white shadow-lg rounded-md py-1 z-50"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+        >
+          <button
+            className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2 text-red-600"
+            onClick={() => handleContextMenuDelete(contextMenu.clipId)}
+          >
+            <Trash2 size={14} />
+            Delete Clip
+          </button>
+        </div>
+      )}
     </div>
   );
 };
