@@ -80,8 +80,8 @@ export const useTimeline = () => {
       track: trackIndex,
       content: {
         src: audioFile.url,
-        volume: 1.0, // Default to full volume
-        muted: false,
+        volume: 1.0, // Set to full volume by default
+        muted: false, // Never muted by default
       },
       x: 0,
       y: 0,
@@ -225,8 +225,18 @@ export const useTimeline = () => {
     setElements((prev) => {
       const updatedElements = prev.map((el) => {
         if (el.id === id) {
-          // If this is a video element, we should update both the start/end times
-          // and adjust the video content to reflect the new trimmed section
+          // Ensure minimum duration of 0.5 seconds
+          if (end - start < 0.5) {
+            if (start === el.start) {
+              // If we're trimming from the start, adjust the end
+              end = start + 0.5;
+            } else {
+              // If we're trimming from the end, adjust the start
+              start = end - 0.5;
+            }
+          }
+
+          // Update the element's time range
           return {
             ...el,
             start,

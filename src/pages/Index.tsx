@@ -20,7 +20,7 @@ import useTimeline from "@/hooks/useTimeline";
 import useEditor from "@/hooks/useEditor";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/UI/button";
 import { ToolType } from "@/types/timeline";
 
 const Index = () => {
@@ -88,7 +88,12 @@ const Index = () => {
 
     // Automatically add to timeline if in media tool
     if (activeTool === "media" && newItems.length > 0) {
-      // Place each item sequentially on the timeline
+      // Find the end time of the last video in the timeline
+      const lastVideoEnd = elements
+        .filter(el => el.type === "video")
+        .reduce((maxEnd, el) => Math.max(maxEnd, el.end), 0);
+
+      // Place each item sequentially starting from the end of the last video
       newItems.forEach((item, index) => {
         // Calculate start time for sequential placement
         const prevItemsTime = index > 0
@@ -96,9 +101,9 @@ const Index = () => {
           : 0;
 
         if (item.type === "audio") {
-          addAudioElement(item, 2, currentTime + prevItemsTime);
+          addAudioElement(item, 2, lastVideoEnd + prevItemsTime);
         } else {
-          addMediaElement(item, 0, currentTime + prevItemsTime);
+          addMediaElement(item, 0, lastVideoEnd + prevItemsTime);
         }
       });
     }
@@ -142,7 +147,13 @@ const Index = () => {
       }
     } else {
       // Normal mode, add to timeline
-      addMediaElement(item);
+      // Find the end time of the last video in the timeline
+      const lastVideoEnd = elements
+        .filter(el => el.type === "video")
+        .reduce((maxEnd, el) => Math.max(maxEnd, el.end), 0);
+
+      // Add the new video at the end of the last video
+      addMediaElement(item, 0, lastVideoEnd);
     }
   };
 
@@ -564,6 +575,7 @@ const Index = () => {
                   onTimeUpdate={setCurrentTime}
                   onRestart={restartTimeline}
                   elements={elements}
+                  selectedElementId={selectedElementId}
                 />
               </div>
             )}
@@ -590,6 +602,7 @@ const Index = () => {
               zoom={timelineZoom}
               onZoomChange={setTimelineZoom}
               onTrimClip={updateElementTimeRange}
+              onDeleteClip={removeElement}
             />
           </div>
         </div>

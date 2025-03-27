@@ -1,5 +1,5 @@
 
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/UI/button";
 import { ArrowDownToLine, Menu, Crown, Share2, ArrowLeft, ArrowRight, Save, Play } from "lucide-react";
 import IconButton from "../UI/IconButton";
 
@@ -28,9 +28,9 @@ const Header = ({
   return (
     <header className="h-14 flex items-center justify-between px-4 bg-gradient-to-r from-sky-400 to-blue-500 text-white z-10">
       <div className="flex items-center gap-4">
-        <IconButton 
-          icon={Menu} 
-          tooltip="Menu" 
+        <IconButton
+          icon={Menu}
+          tooltip="Menu"
           className="bg-transparent hover:bg-white/10 text-white"
         />
         <div className="h-6 w-px bg-white/20" />
@@ -52,24 +52,24 @@ const Header = ({
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <IconButton 
-            icon={ArrowLeft} 
-            tooltip="Undo" 
+          <IconButton
+            icon={ArrowLeft}
+            tooltip="Undo"
             className="bg-transparent hover:bg-white/10 text-white"
           />
-          <IconButton 
-            icon={ArrowRight} 
-            tooltip="Redo" 
+          <IconButton
+            icon={ArrowRight}
+            tooltip="Redo"
             className="bg-transparent hover:bg-white/10 text-white"
           />
-          <IconButton 
-            icon={Save} 
-            tooltip="Save" 
+          <IconButton
+            icon={Save}
+            tooltip="Save"
             className="bg-transparent hover:bg-white/10 text-white"
           />
         </div>
       </div>
-      
+
       <div className="flex items-center">
         <input
           type="text"
@@ -88,17 +88,17 @@ const Header = ({
           <Crown size={16} className="text-yellow-300" />
           Upgrade to Pro
         </Button>
-        
+
         <div className="bg-white/10 text-white px-3 py-1.5 rounded-md mx-1">
           {formattedTime}
         </div>
-        
-        <IconButton 
-          icon={Play} 
-          tooltip="Play" 
+
+        <IconButton
+          icon={Play}
+          tooltip="Play"
           className="bg-white/10 hover:bg-white/20 text-white"
         />
-        
+
         <Button
           variant="outline"
           className="text-white border-white/20 bg-white/10 hover:bg-white/20 flex items-center gap-1 h-9"

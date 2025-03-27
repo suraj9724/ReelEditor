@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Bold, Italic, AlignLeft, AlignCenter, AlignRight, MoveHorizontal, Type } from "lucide-react";
 import Panel from "../UI/Panel";
 import IconButton from "../UI/IconButton";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/UI/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/UI/popover";
 import { cn } from "@/lib/utils";
 
