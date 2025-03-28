@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
-import { Maximize, Minimize, ZoomIn, ZoomOut, Trash2 } from "lucide-react";
+import { Maximize, Minimize, ZoomIn, ZoomOut, Trash2, Volume2, VolumeX, Play, Pause } from "lucide-react";
 import IconButton from "../UI/IconButton";
 import { CanvasElement } from "@/types/timeline";
 
@@ -41,8 +41,8 @@ const Canvas = ({
   const [cropStart, setCropStart] = useState({ x: 0, y: 0 });
   const [cropArea, setCropArea] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const [selectedAspectRatio, setSelectedAspectRatio] = useState<string | null>("freeform");
+  const [videoStates, setVideoStates] = useState<Record<string, { isPlaying: boolean; isMuted: boolean; volume: number }>>({});
 
-  // Aspect ratio options
   const aspectRatioOptions = {
     "freeform": null,
     "1:1": 1,
@@ -54,7 +54,6 @@ const Canvas = ({
     "3:4": 3 / 4,
     "3:2": 3 / 2,
   };
-
   // Filter elements for current time
   const visibleElements = elements.filter(
     (el) => currentTime >= el.start && currentTime <= el.end
@@ -62,33 +61,69 @@ const Canvas = ({
 
   // Sync video elements with current time
   useEffect(() => {
+    const newVideoStates: Record<string, { isPlaying: boolean; isMuted: boolean; volume: number }> = {};
+    let hasChanges = false;
+    visibleElements.forEach((element) => {
+      if (element.type === "video" && !videoStates[element.id]) {
+        newVideoStates[element.id] = {
+          isPlaying: isPlaying,
+          isMuted: element.content.muted || false,
+          volume: element.content.volume !== undefined ? element.content.volume * 100 : 100
+        };
+        hasChanges = true;
+      }
+    });
+
+    if (hasChanges) {
+      setVideoStates(prev => {
+        // Create a new state object only if there are changes
+        return { ...prev, ...newVideoStates };
+      });
+    }
+  }, [visibleElements, videoStates, isPlaying]);
+
+  useEffect(() => {
     visibleElements.forEach((element) => {
       if (element.type === "video" && videoRefs.current[element.id]) {
         const video = videoRefs.current[element.id];
         if (video) {
-          // Only update time if it differs significantly to avoid playback issues
-          const targetTime = currentTime - element.start;
-          if (Math.abs(video.currentTime - targetTime) > 0.5) {
-            video.currentTime = targetTime;
+          if (isPlaying) {
+            video.play().catch(err => console.error("Error playing video:", err));
+          } else {
+            video.pause();
           }
 
-          // Handle play/pause based on isPlaying prop and time range
-          if (currentTime < element.start || currentTime > element.end) {
-            video.pause();
-          } else {
-            if (isPlaying) {
-              video.play().catch(() => {
-                // Ignore play errors (e.g., if video is already playing)
-              });
-            } else {
-              video.pause();
+          setVideoStates(prev => {
+            const currentState = prev[element.id];
+            // Only update if isPlaying has actually changed in the prop
+            if (currentState && currentState.isPlaying !== isPlaying) {
+              return {
+                ...prev,
+                [element.id]: {
+                  ...currentState,
+                  isPlaying: isPlaying
+                }
+              };
             }
+            return prev; // Return previous state if no update needed
+          });
+        }
+      }
+    });
+  }, [isPlaying, visibleElements]);
+
+  useEffect(() => {
+    visibleElements.forEach((element) => {
+      if (element.type === "video" && videoRefs.current[element.id]) {
+        const video = videoRefs.current[element.id];
+        if (video) {
+          if (Math.abs(video.currentTime - (currentTime - element.start)) > 0.2) {
+            video.currentTime = currentTime - element.start;
           }
         }
       }
     });
-  }, [currentTime, visibleElements, isPlaying]);
-
+  }, [currentTime, visibleElements]);
   // Handle element selection
   const handleElementClick = (
     e: React.MouseEvent<HTMLDivElement>,
@@ -229,7 +264,16 @@ const Canvas = ({
   const handleFullscreenToggle = () => {
     setIsFullscreen(!isFullscreen);
   };
-
+  const handleVideoPlayPause = (e: React.MouseEvent, elementId: string) => {
+    e.stopPropagation();
+    const videoRef = videoRefs.current[elementId];
+    if (!videoRef) return;
+    if (!isPlaying) {
+      videoRef.play().catch(err => console.error("Error playing video:", err));
+    } else {
+      videoRef.pause();
+    }
+  };
   // Handle element deletion
   const handleDeleteElement = (e: React.MouseEvent<HTMLDivElement>, elementId: string) => {
     e.stopPropagation();
@@ -350,7 +394,46 @@ const Canvas = ({
       }
     }
   };
+  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>, elementId: string) => {
+    e.stopPropagation();
+    const volume = parseInt(e.target.value);
+    const videoRef = videoRefs.current[elementId];
 
+    if (!videoRef) return;
+
+    setVideoStates(prev => {
+      const newState = {
+        ...prev,
+        [elementId]: {
+          ...prev[elementId],
+          volume: volume
+        }
+      };
+
+      videoRef.volume = volume / 100;
+
+      return newState;
+    });
+  };
+  const handleVideoMute = (e: React.MouseEvent, elementId: string) => {
+    e.stopPropagation();
+    const videoRef = videoRefs.current[elementId];
+    if (!videoRef) return;
+
+    setVideoStates(prev => {
+      const newState = {
+        ...prev,
+        [elementId]: {
+          ...prev[elementId],
+          isMuted: !prev[elementId].isMuted
+        }
+      };
+
+      videoRef.muted = newState[elementId].isMuted;
+
+      return newState;
+    });
+  };
   // Cleanup event listeners on unmount
   useEffect(() => {
     return () => {
@@ -486,38 +569,45 @@ const Canvas = ({
                               ${-element.content.crop.y}%
                             ) scale(${100 / element.content.crop.width}, ${100 / element.content.crop.height})` : 'none'
                       }}
-                      muted
+                      muted={videoStates[element.id]?.isMuted || false}
                       autoPlay={false}
                       loop={false}
                       playsInline
-                      preload="metadata"
+                      preload="auto"
                     />
-                    {isCropping && selectedElementId === element.id && cropArea && (
-                      <>
-                        <div
-                          className="absolute border-2 border-white cursor-crosshair"
-                          style={{
-                            left: `${cropArea.x}%`,
-                            top: `${cropArea.y}%`,
-                            width: `${cropArea.width}%`,
-                            height: `${cropArea.height}%`,
-                          }}
-                        />
-                        <div className="absolute top-0 left-0 w-full h-full pointer-events-none">
-                          <div className="absolute inset-0 bg-black/50" style={{
-                            clipPath: `inset(
-                              ${cropArea.y}% 
-                              ${100 - cropArea.x - cropArea.width}% 
-                              ${100 - cropArea.y - cropArea.height}% 
-                              ${cropArea.x}%
-                            )`
-                          }} />
-                        </div>
-                      </>
-                    )}
+                    <div
+                      className="absolute bottom-0 left-0 right-0 bg-black/60 p-2 flex items-center gap-2 pointer-events-auto"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <button
+                        className="flex items-center justify-center p-1 rounded-full bg-white/20 hover:bg-white/30 text-white transition"
+                        onClick={(e) => handleVideoPlayPause(e, element.id)}
+                      >
+                        {isPlaying ?
+                          <Pause size={16} /> :
+                          <Play size={16} />}
+                      </button>
+                      <button
+                        className="flex items-center justify-center p-1 rounded-full bg-white/20 hover:bg-white/30 text-white transition"
+                        onClick={(e) => handleVideoMute(e, element.id)}
+                      >
+                        {videoStates[element.id]?.isMuted ?
+                          <VolumeX size={16} /> :
+                          <Volume2 size={16} />}
+                      </button>
+
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={videoStates[element.id]?.volume || 100}
+                        onChange={(e) => handleVolumeChange(e, element.id)}
+                        className="w-16 h-1.5 appearance-none bg-white/30 rounded-full outline-none"
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </div>
                   </div>
                 )}
-
                 {selectedElementId === element.id && (
                   <>
                     <div
@@ -552,7 +642,7 @@ const Canvas = ({
           </div>
         </div>
       </div>
-    </div>
+    </div >
   );
 };
 

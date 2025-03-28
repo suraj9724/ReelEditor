@@ -1,4 +1,3 @@
-
 import { useRef, useState } from "react";
 import { Music, Upload } from "lucide-react";
 import Panel from "../UI/Panel";
@@ -24,28 +23,32 @@ const AudioUploader = ({ onAudioUpload }: AudioUploaderProps) => {
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
-    
+
     const files = Array.from(e.dataTransfer.files);
     processFiles(files);
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files?.length) return;
-    
+
     const files = Array.from(e.target.files);
     processFiles(files);
   };
 
   const processFiles = (files: File[]) => {
-    const audioFiles = files.filter(file => 
+    console.log("Processing files:", files);
+
+    const audioFiles = files.filter(file =>
       file.type.startsWith('audio/')
     );
-    
+
+    console.log("Audio files found:", audioFiles);
+
     if (audioFiles.length === 0) {
       toast.error("Please upload audio files only");
       return;
     }
-    
+
     onAudioUpload(audioFiles);
     toast.success(`Added ${audioFiles.length} audio file${audioFiles.length !== 1 ? 's' : ''}`);
   };
@@ -61,8 +64,8 @@ const AudioUploader = ({ onAudioUpload }: AudioUploaderProps) => {
           w-full border-2 border-dashed rounded-lg p-6 
           flex flex-col items-center justify-center gap-4 
           transition-colors duration-200 cursor-pointer
-          ${isDragging 
-            ? "border-editor-accent bg-editor-accent/5" 
+          ${isDragging
+            ? "border-editor-accent bg-editor-accent/5"
             : "border-editor-border hover:border-editor-muted/50 hover:bg-editor-background/30"
           }
         `}
@@ -73,9 +76,8 @@ const AudioUploader = ({ onAudioUpload }: AudioUploaderProps) => {
       >
         <div className="w-16 h-16 rounded-full bg-editor-accent/10 flex items-center justify-center">
           <Music
-            className={`transition-colors duration-200 ${
-              isDragging ? "text-editor-accent" : "text-editor-muted"
-            }`}
+            className={`transition-colors duration-200 ${isDragging ? "text-editor-accent" : "text-editor-muted"
+              }`}
             size={24}
           />
         </div>
