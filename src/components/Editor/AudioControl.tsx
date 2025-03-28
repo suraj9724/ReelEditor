@@ -49,8 +49,16 @@ const AudioControl = ({
     const normalizedVolume = value / 100;
     onVolumeChange(selectedElementId, normalizedVolume);
 
+    // Force immediate update by modifying the audio element directly
+    if (selectedElement) {
+      const audioElement = document.querySelector(`audio[data-element-id="${selectedElementId}"]`) as HTMLAudioElement;
+      if (audioElement) {
+        audioElement.volume = normalizedVolume;
+      }
+    }
+
     // Log the volume change for debugging
-    console.log("Volume changed:", {
+    console.log("AudioControl Volume changed:", {
       elementId: selectedElementId,
       volume: normalizedVolume,
       percentage: value
@@ -65,8 +73,15 @@ const AudioControl = ({
     setIsMuted(newMuted);
     onMuteToggle(selectedElementId, newMuted);
 
+    // Force immediate update
+    if (selectedElement) {
+      const audioElement = document.querySelector(`audio[data-element-id="${selectedElementId}"]`) as HTMLAudioElement;
+      if (audioElement) {
+        audioElement.muted = newMuted;
+      }
+    }
     // Log the mute toggle for debugging
-    console.log("Mute toggled:", {
+    console.log("AudioControl Mute toggled:", {
       elementId: selectedElementId,
       muted: newMuted
     });

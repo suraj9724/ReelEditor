@@ -46,7 +46,7 @@ export const useTimeline = () => {
       thumbnail: mediaItem.thumbnail,
       content: {
         src: mediaItem.url,
-        volume: 1.0, // Ensure video has volume
+        volume: 1.0, // Ensure video has volume is set to 1.0 (full volume)
       },
       x: 0,
       y: 0,
@@ -180,7 +180,9 @@ export const useTimeline = () => {
           ...el,
           content: {
             ...el.content,
-            volume
+            volume,
+            // Ensure muted is preserved
+            muted: el.content.muted || false
           }
         } : el
       )

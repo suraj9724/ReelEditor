@@ -24,6 +24,7 @@ interface PreviewProps {
 }
 
 const Preview = ({
+ 
   isPlaying,
   currentTime,
   duration,
@@ -34,6 +35,7 @@ const Preview = ({
   elements,
   selectedElementId,
 }: PreviewProps) => {
+  const [audioSource, setAudioSource] = useState<'video' | 'uploaded'>('video');
   const [volume, setVolume] = useState(100);
   const [isMuted, setIsMuted] = useState(false);
   const [showVolumeControl, setShowVolumeControl] = useState(false);
@@ -69,7 +71,12 @@ const Preview = ({
     }
   }, [selectedElement]);
 
-  // Find active audio elements at current time
+  // Add a toggle function
+  const toggleAudioSource = () => {
+    setAudioSource(prev => (prev === 'video' ? 'uploaded' : 'video'));
+  };
+
+  // In the return statement, add a toggle button
   useEffect(() => {
     const activeAudioElements = elements.filter(
       el => el.type === "audio" &&
@@ -85,7 +92,6 @@ const Preview = ({
       let audioElement = audioRefs.current[audio.id];
 
       if (!audioElement) {
-        console.log("Creating new audio element:", audio.id);
         audioElement = new Audio(audio.content.src);
         audioRefs.current[audio.id] = audioElement;
 
@@ -102,15 +108,21 @@ const Preview = ({
         audioElement.volume = audio.content.volume !== undefined ? audio.content.volume : 1.0;
         audioElement.muted = audio.content.muted || false;
       }
-
       // Update volume and mute state based on selected element
       if (selectedElement && selectedElement.id === audio.id) {
         audioElement.volume = volume / 100;
         audioElement.muted = isMuted;
       } else {
+        // Ensure audio elements always use their own volume/mute settings by default
         audioElement.volume = audio.content.volume !== undefined ? audio.content.volume : 1.0;
         audioElement.muted = audio.content.muted || false;
       }
+      console.log("Preview Audio element state:", {
+        elementId: audio.id,
+        volume: audioElement.volume,
+        muted: audioElement.muted,
+        selectedElementId: selectedElement?.id
+      });
 
       // Calculate time within the audio clip
       const audioLocalTime = Math.max(0, currentTime - audio.start);
@@ -120,10 +132,23 @@ const Preview = ({
         audioElement.currentTime = audioLocalTime;
       }
 
-      // Handle playback state
+      // Update playback logic to respect the selected audio source
+      if (audioSource === 'uploaded') {
+        // Play uploaded audio elements
+        activeAudioElements.forEach(audio => {
+          // Existing playback logic...
+        });
+      } else {
+        // Play video audio
+        const videoElement = videoRef.current;
+        if (videoElement) {
+          videoElement.volume = volume / 100;
+          videoElement.muted = isMuted;
+          // Existing video playback logic...
+        }
+      }
       if (isPlaying) {
         if (audioElement.paused) {
-          console.log("Starting audio playback:", audio.id);
           const playPromise = audioElement.play();
           if (playPromise !== undefined) {
             playPromise.catch(error => {
@@ -133,7 +158,6 @@ const Preview = ({
         }
       } else {
         if (!audioElement.paused) {
-          console.log("Pausing audio playback:", audio.id);
           audioElement.pause();
         }
       }
@@ -142,13 +166,12 @@ const Preview = ({
     // Cleanup removed audio elements
     Object.keys(audioRefs.current).forEach(id => {
       if (!activeAudioElements.some(a => a.id === id)) {
-        console.log("Removing audio element:", id);
         const audio = audioRefs.current[id];
         audio.pause();
         delete audioRefs.current[id];
       }
     });
-  }, [elements, currentTime, isPlaying, volume, isMuted, selectedElement]);
+  }, [elements, currentTime, isPlaying, volume]);
 
   // Handle video element changes with optimized event handling
   useEffect(() => {
@@ -211,6 +234,12 @@ const Preview = ({
         videoElement.volume = selectedElement?.content.volume !== undefined ? selectedElement.content.volume : 1.0;
         videoElement.muted = selectedElement?.content.muted || false;
       }
+      console.log("Preview Video audio state (Play/Pause Effect):", {
+        volume: videoElement.volume,
+        muted: videoElement.muted,
+        isPlaying: !videoElement.paused,
+        selectedElementId: selectedElement?.id
+      });
 
       // Use play() and catch any errors
       const playPromise = videoElement.play();
@@ -244,10 +273,11 @@ const Preview = ({
       }
     }
 
-    console.log("Video audio state:", {
+    console.log("Preview Video audio state (Volume Change Effect):", {
       volume: videoElement.volume,
       muted: videoElement.muted,
-      isPlaying: !videoElement.paused
+      isPlaying: !videoElement.paused,
+      selectedElementId: selectedElement?.id
     });
   }, [volume, isMuted, isPlaying]);
 
@@ -333,7 +363,6 @@ const Preview = ({
               onError={(e) => console.error("Video error:", e)}
               muted={isMuted}
             />
-
             {isBuffering && (
               <div className="absolute inset-0 flex items-center justify-center">
                 <div className="loader w-10 h-10 border-4 border-t-4 border-gray-200 border-t-blue-500 rounded-full animate-spin"></div>
