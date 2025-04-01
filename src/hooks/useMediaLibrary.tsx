@@ -133,15 +133,13 @@ export const useMediaLibrary = () => {
         // Also add to the appropriate collection
         if (type === "audio") {
           setAudioItems(prev => [...prev, newItem]);
+        } else {
+          // Add all non-audio items to the main media list
+          setMediaItems(prev => [...prev, newItem]);
         }
       }
 
-      // Add to main media items (excluding audio)
-      const nonAudioItems = newItems.filter(item => item.type !== "audio");
-      if (nonAudioItems.length > 0) {
-        setMediaItems(prev => [...prev, ...nonAudioItems]);
-      }
-
+      console.log("Added media items:", newItems);
       return newItems;
     } catch (error) {
       console.error("Error adding media:", error);

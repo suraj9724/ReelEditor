@@ -10,6 +10,7 @@ import {
 import IconButton from "../UI/IconButton";
 import { Slider } from "@/components/UI/slider";
 import { TimelineElement } from "@/types/timeline";
+import { toast } from "sonner";
 
 interface PreviewProps {
   isPlaying: boolean;
@@ -21,10 +22,11 @@ interface PreviewProps {
   onRestart: () => void;
   elements: TimelineElement[];
   selectedElementId: string | null;
+  elementCrop: { x: number; y: number; width: number; height: number } | null;
+  audioPriority?: 'video' | 'audio';
 }
 
 const Preview = ({
- 
   isPlaying,
   currentTime,
   duration,
@@ -33,9 +35,11 @@ const Preview = ({
   onTimeUpdate,
   onRestart,
   elements,
+  audioPriority = 'video',
   selectedElementId,
+  elementCrop,
 }: PreviewProps) => {
-  const [audioSource, setAudioSource] = useState<'video' | 'uploaded'>('video');
+  // const [audioSource, setAudioSource] = useState<'video' | 'uploaded'>('video');
   const [volume, setVolume] = useState(100);
   const [isMuted, setIsMuted] = useState(false);
   const [showVolumeControl, setShowVolumeControl] = useState(false);
@@ -46,6 +50,9 @@ const Preview = ({
   const [videoEnded, setVideoEnded] = useState(false);
   const [isBuffering, setIsBuffering] = useState(false);
   const timeUpdateBlocker = useRef(false);
+  const previousAudioPriorityRef = useRef(audioPriority);
+  const didInitialPlayRef = useRef<Record<string, boolean>>({});
+  const videoMutedRef = useRef<boolean>(false);
 
   const formatTime = (timeInSeconds: number): string => {
     const minutes = Math.floor(timeInSeconds / 60);
@@ -53,30 +60,58 @@ const Preview = ({
     return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
   };
 
-  // Find the selected element
-  const selectedElement = selectedElementId
-    ? elements.find(el => el.id === selectedElementId)
-    : null;
+  const updateMediaStates = () => {
+    const priorityChanged = previousAudioPriorityRef.current !== audioPriority;
+    previousAudioPriorityRef.current = audioPriority;
 
-  // Update volume and mute state when selected element changes
-  useEffect(() => {
-    if (selectedElement) {
-      if (selectedElement.type === 'audio' || selectedElement.type === 'video') {
-        const elementVolume = selectedElement.content.volume !== undefined
-          ? selectedElement.content.volume * 100
-          : 100;
-        setVolume(elementVolume);
-        setIsMuted(selectedElement.content.muted || false);
-      }
+    if (priorityChanged) {
+      console.log(`Audio priority changed in Preview: ${audioPriority}`);
+      toast.info(`Audio priority set to ${audioPriority === 'video' ? 'video audio' : 'uploaded audio'}`);
     }
-  }, [selectedElement]);
 
-  // Add a toggle function
-  const toggleAudioSource = () => {
-    setAudioSource(prev => (prev === 'video' ? 'uploaded' : 'video'));
+    if (videoRef.current) {
+      const hasActiveAudio = activeAudioElementsRef.current.length > 0;
+      const shouldMuteVideo = isMuted || (audioPriority === 'audio' && hasActiveAudio);
+      videoRef.current.muted = shouldMuteVideo;
+      videoRef.current.volume = volume / 100;
+      videoMutedRef.current = shouldMuteVideo;
+      console.log(`Video audio ${shouldMuteVideo ? 'muted' : 'unmuted'} (priority: ${audioPriority})`);
+    }
+
+    activeAudioElementsRef.current.forEach(audio => {
+      const audioElement = audioRefs.current[audio.id];
+      if (!audioElement) return;
+
+      const elementMuted = audio.content.muted || false;
+      const hasVideo = elements.some(el =>
+        el.type === "video" && currentTime >= el.start && currentTime <= el.end
+      );
+
+      const shouldMuteAudio = isMuted || (audioPriority === 'video' && hasVideo) || elementMuted;
+
+      audioElement.muted = shouldMuteAudio;
+
+      const elementVolume = audio.content.volume !== undefined ? audio.content.volume : 1;
+      audioElement.volume = elementVolume * (volume / 100);
+
+      console.log(`Audio file ${audio.id} ${shouldMuteAudio ? 'muted' : 'unmuted'} (priority: ${audioPriority})`);
+
+      if (isPlaying && !shouldMuteAudio) {
+        const playPromise = audioElement.play();
+        if (playPromise !== undefined) {
+          playPromise.catch(error => {
+            console.error("Error playing audio:", error);
+            if (!didInitialPlayRef.current[audio.id]) {
+              didInitialPlayRef.current[audio.id] = true;
+            }
+          });
+        }
+      } else if (!isPlaying) {
+        audioElement.pause();
+      }
+    });
   };
 
-  // In the return statement, add a toggle button
   useEffect(() => {
     const activeAudioElements = elements.filter(
       el => el.type === "audio" &&
@@ -84,95 +119,214 @@ const Preview = ({
         currentTime <= el.end
     );
 
-    // Update active audio elements
+    console.log(`Active audio elements at time ${currentTime}:`, activeAudioElements.length);
     activeAudioElementsRef.current = activeAudioElements;
 
-    // Create or update audio elements
     activeAudioElements.forEach(audio => {
-      let audioElement = audioRefs.current[audio.id];
+      if (!audioRefs.current[audio.id]) {
+        console.log("Creating audio element for", audio.id, audio.content.src);
+        const audioElement = new Audio(audio.content.src);
 
-      if (!audioElement) {
-        audioElement = new Audio(audio.content.src);
-        audioRefs.current[audio.id] = audioElement;
-
-        // Set up event handlers
-        audioElement.onerror = (e) => {
-          console.error("Error loading audio:", e);
-        };
-
-        audioElement.oncanplaythrough = () => {
-          console.log("Audio ready to play:", audio.id);
-        };
-
-        // Set initial volume and mute state
-        audioElement.volume = audio.content.volume !== undefined ? audio.content.volume : 1.0;
-        audioElement.muted = audio.content.muted || false;
-      }
-      // Update volume and mute state based on selected element
-      if (selectedElement && selectedElement.id === audio.id) {
-        audioElement.volume = volume / 100;
-        audioElement.muted = isMuted;
-      } else {
-        // Ensure audio elements always use their own volume/mute settings by default
-        audioElement.volume = audio.content.volume !== undefined ? audio.content.volume : 1.0;
-        audioElement.muted = audio.content.muted || false;
-      }
-      console.log("Preview Audio element state:", {
-        elementId: audio.id,
-        volume: audioElement.volume,
-        muted: audioElement.muted,
-        selectedElementId: selectedElement?.id
-      });
-
-      // Calculate time within the audio clip
-      const audioLocalTime = Math.max(0, currentTime - audio.start);
-
-      // Only update time if it's significantly different
-      if (Math.abs(audioElement.currentTime - audioLocalTime) > 0.2) {
+        const audioLocalTime = Math.max(0, currentTime - audio.start);
         audioElement.currentTime = audioLocalTime;
-      }
 
-      // Update playback logic to respect the selected audio source
-      if (audioSource === 'uploaded') {
-        // Play uploaded audio elements
-        activeAudioElements.forEach(audio => {
-          // Existing playback logic...
-        });
-      } else {
-        // Play video audio
-        const videoElement = videoRef.current;
-        if (videoElement) {
-          videoElement.volume = volume / 100;
-          videoElement.muted = isMuted;
-          // Existing video playback logic...
-        }
-      }
-      if (isPlaying) {
-        if (audioElement.paused) {
-          const playPromise = audioElement.play();
-          if (playPromise !== undefined) {
-            playPromise.catch(error => {
-              console.error("Error playing audio:", error);
-            });
-          }
-        }
-      } else {
-        if (!audioElement.paused) {
-          audioElement.pause();
-        }
+        const elementVolume = audio.content.volume !== undefined ? audio.content.volume : 1;
+        audioElement.volume = elementVolume * (volume / 100);
+
+        audioRefs.current[audio.id] = audioElement;
+        didInitialPlayRef.current[audio.id] = false;
       }
     });
 
-    // Cleanup removed audio elements
     Object.keys(audioRefs.current).forEach(id => {
       if (!activeAudioElements.some(a => a.id === id)) {
+        console.log("Removing audio element", id);
         const audio = audioRefs.current[id];
         audio.pause();
         delete audioRefs.current[id];
+        delete didInitialPlayRef.current[id];
       }
     });
-  }, [elements, currentTime, isPlaying, volume]);
 
+    updateMediaStates();
+  }, [elements, currentTime, audioPriority]);
+
+  // Find the selected element
+  // const selectedElement = selectedElementId
+  //   ? elements.find(el => el.id === selectedElementId)
+  //   : null;
+
+  // Update volume and mute state when selected element changes
+  // useEffect(() => {
+  //   if (selectedElement) {
+  //     if (selectedElement.type === 'audio' || selectedElement.type === 'video') {
+  //       const elementVolume = selectedElement.content.volume !== undefined
+  //         ? selectedElement.content.volume * 100
+  //         : 100;
+  //       setVolume(elementVolume);
+  //       setIsMuted(selectedElement.content.muted || false);
+  //     }
+  //   }
+  // }, [selectedElement]);
+
+  // // Add a toggle function
+  // const toggleAudioSource = () => {
+  //   setAudioSource(prev => (prev === 'video' ? 'uploaded' : 'video'));
+  // };
+
+  // In the return statement, add a toggle button
+  // useEffect(() => {
+  //   const activeAudioElements = elements.filter(
+  //     el => el.type === "audio" &&
+  //       currentTime >= el.start &&
+  //       currentTime <= el.end
+  //   );
+
+  //   // Update active audio elements
+  //   activeAudioElementsRef.current = activeAudioElements;
+
+  //   // Create or update audio elements
+  //   activeAudioElements.forEach(audio => {
+  //     let audioElement = audioRefs.current[audio.id];
+
+  //     if (!audioElement) {
+  //       audioElement = new Audio(audio.content.src);
+  //       audioRefs.current[audio.id] = audioElement;
+
+  //       // Set up event handlers
+  //       audioElement.onerror = (e) => {
+  //         console.error("Error loading audio:", e);
+  //       };
+
+  //       audioElement.oncanplaythrough = () => {
+  //         console.log("Audio ready to play:", audio.id);
+  //       };
+
+  //       // Set initial volume and mute state
+  //       audioElement.volume = audio.content.volume !== undefined ? audio.content.volume : 1.0;
+  //       audioElement.muted = audio.content.muted || false;
+  //     }
+  //     // Update volume and mute state based on selected element
+  //     if (selectedElement && selectedElement.id === audio.id) {
+  //       audioElement.volume = volume / 100;
+  //       audioElement.muted = isMuted;
+  //     } else {
+  //       // Ensure audio elements always use their own volume/mute settings by default
+  //       audioElement.volume = audio.content.volume !== undefined ? audio.content.volume : 1.0;
+  //       audioElement.muted = audio.content.muted || false;
+  //     }
+  //     console.log("Preview Audio element state:", {
+  //       elementId: audio.id,
+  //       volume: audioElement.volume,
+  //       muted: audioElement.muted,
+  //       selectedElementId: selectedElement?.id
+  //     });
+
+  //     // Calculate time within the audio clip
+  //     const audioLocalTime = Math.max(0, currentTime - audio.start);
+
+  //     // Only update time if it's significantly different
+  //     if (Math.abs(audioElement.currentTime - audioLocalTime) > 0.2) {
+  //       audioElement.currentTime = audioLocalTime;
+  //     }
+
+  //     // Update playback logic to respect the selected audio source
+  //     console.log("Current audioSource:", audioSource);
+  //     if (audioSource === 'uploaded') {
+  //       console.log("Playing uploaded audio");
+  //       // Play uploaded audio elements
+  //       if (isPlaying) {
+  //         if (audioElement.paused) {
+  //           const playPromise = audioElement.play();
+  //           if (playPromise !== undefined) {
+  //             playPromise.catch(error => {
+  //               console.error("Error playing audio:", error);
+  //             });
+  //           }
+  //         }
+  //       } else {
+  //         if (!audioElement.paused) {
+  //           audioElement.pause();
+  //         }
+  //       }
+  //     } else {
+  //       console.log("Playing video audio");
+  //       // Play video audio
+  //       const videoElement = videoRef.current;
+  //       if (videoElement) {
+  //         videoElement.volume = volume / 100;
+  //         videoElement.muted = isMuted;
+  //         // Existing video playback logic...
+  //       }
+  //     }
+  //     if (isPlaying && audioSource !== 'uploaded') { // Ensure video play is only triggered when not using uploaded audio
+  //       const videoElement = videoRef.current;
+  //       if (videoElement && videoElement.paused) {
+  //         const playPromise = videoElement.play();
+  //         if (playPromise !== undefined) {
+  //           playPromise.catch(error => {
+  //             console.error("Error playing video:", error);
+  //           });
+  //         }
+  //       }
+  //     } else if (!isPlaying && audioSource !== 'uploaded') { // Ensure video pause is only triggered when not using uploaded audio
+  //       const videoElement = videoRef.current;
+  //       if (videoElement && !videoElement.paused) {
+  //         videoElement.pause();
+  //       }
+  //     }
+  //   });
+
+  //   // Cleanup removed audio elements
+  //   Object.keys(audioRefs.current).forEach(id => {
+  //     if (!activeAudioElements.some(a => a.id === id)) {
+  //       const audio = audioRefs.current[id];
+  //       audio.pause();
+  //       delete audioRefs.current[id];
+  //     }
+  //   });
+  // }, [elements, currentTime, isPlaying, volume, audioSource]);
+
+  useEffect(() => {
+    if (Math.abs(currentTime - lastTimeRef.current) > 0.1) {
+      activeAudioElementsRef.current.forEach(audio => {
+        const audioElement = audioRefs.current[audio.id];
+        if (audioElement) {
+          const audioLocalTime = Math.max(0, currentTime - audio.start);
+
+          if (Math.abs(audioElement.currentTime - audioLocalTime) > 0.2) {
+            console.log("Updating audio time for", audio.id, "to", audioLocalTime);
+            audioElement.currentTime = audioLocalTime;
+          }
+        }
+      });
+    }
+    lastTimeRef.current = currentTime;
+  }, [currentTime]);
+
+  useEffect(() => {
+    console.log("Playback state changed:", isPlaying);
+    updateMediaStates();
+  }, [isPlaying]);
+
+  useEffect(() => {
+    updateMediaStates();
+  }, [volume, isMuted, audioPriority]);
+
+  const handleMuteToggle = () => {
+    setIsMuted(!isMuted);
+    toast.info(isMuted ? "Unmuted" : "Muted");
+  };
+
+  useEffect(() => {
+    return () => {
+      Object.values(audioRefs.current).forEach(audio => {
+        audio.pause();
+      });
+      audioRefs.current = {};
+      didInitialPlayRef.current = {};
+    };
+  }, []);
   // Handle video element changes with optimized event handling
   useEffect(() => {
     const videoElement = videoRef.current;
@@ -226,22 +380,6 @@ const Preview = ({
         }
       }
 
-      // Update video audio state based on selected element
-      if (selectedElement && selectedElement.type === 'video' && selectedElement.id === videoElement.id) {
-        videoElement.volume = volume / 100;
-        videoElement.muted = isMuted;
-      } else {
-        videoElement.volume = selectedElement?.content.volume !== undefined ? selectedElement.content.volume : 1.0;
-        videoElement.muted = selectedElement?.content.muted || false;
-      }
-      console.log("Preview Video audio state (Play/Pause Effect):", {
-        volume: videoElement.volume,
-        muted: videoElement.muted,
-        isPlaying: !videoElement.paused,
-        selectedElementId: selectedElement?.id
-      });
-
-      // Use play() and catch any errors
       const playPromise = videoElement.play();
       if (playPromise !== undefined) {
         playPromise.catch((error) => {
@@ -252,42 +390,53 @@ const Preview = ({
     } else {
       videoElement.pause();
     }
-  }, [isPlaying, onPause, videoEnded, currentTime, duration, onTimeUpdate, volume, isMuted, selectedElement]);
+  }, [isPlaying, onPause, videoEnded, currentTime, duration, onTimeUpdate, volume, isMuted]);
 
   // Apply volume change to video
   useEffect(() => {
     const videoElement = videoRef.current;
     if (!videoElement) return;
 
-    // Update volume and mute state
-    videoElement.volume = volume / 100;
-    videoElement.muted = isMuted;
+    // // Update volume and mute state
+    // videoElement.volume = volume / 100;
+    // videoElement.muted = isMuted;
+    if (Math.abs(videoElement.currentTime - currentTime) > 0.2) {
+      timeUpdateBlocker.current = true;
+      videoElement.currentTime = currentTime;
 
-    // If we're playing, ensure the video continues playing after volume change
-    if (isPlaying && videoElement.paused) {
-      const playPromise = videoElement.play();
-      if (playPromise !== undefined) {
-        playPromise.catch(error => {
-          console.error("Error playing video after volume change:", error);
-        });
-      }
+      setTimeout(() => {
+        timeUpdateBlocker.current = false;
+      }, 50);
     }
+  }, [currentTime]);
 
-    console.log("Preview Video audio state (Volume Change Effect):", {
-      volume: videoElement.volume,
-      muted: videoElement.muted,
-      isPlaying: !videoElement.paused,
-      selectedElementId: selectedElement?.id
-    });
-  }, [volume, isMuted, isPlaying]);
-
-  // Find the video element to display
   const videoElement = elements.find(
     (el) =>
       el.type === "video" &&
       currentTime >= el.start &&
       currentTime <= el.end
   );
+
+  const activeAudioElements = elements.filter(
+    el => el.type === "audio" && currentTime >= el.start && currentTime <= el.end
+  );
+
+  // If we're playing, ensure the video continues playing after volume change
+  // if (isPlaying && videoRef.current?.paused) {
+  //   const playPromise = videoRef.current.play();
+  //   if (playPromise !== undefined) {
+  //     playPromise.catch(error => {
+  //       console.error("Error playing video after volume change:", error);
+  //     });
+  //   }
+  // }
+
+  // console.log("Preview Video audio state (Volume Change Effect):", {
+  //   volume: videoRef.current?.volume,
+  //   muted: videoRef.current?.muted,
+  //   isPlaying: !videoRef.current?.paused,
+  //   selectedElementId: selectedElement?.id
+  // }, [volume, isMuted, isPlaying]);
 
   // Handle restart
   const handleRestart = () => {
@@ -305,15 +454,15 @@ const Preview = ({
 
   // Apply crop styles if crop is defined
   const getVideoStyle = () => {
-    if (videoElement && videoElement.content.crop) {
-      const crop = videoElement.content.crop;
+    const crop = elementCrop || (videoElement && videoElement.content.crop);
+    if (crop) {
       return {
         display: isBuffering ? 'none' : 'block',
         objectFit: 'cover' as const,
-        objectPosition: `${crop.x}% ${crop.y}%`,
-        width: `${crop.width}%`,
-        height: `${crop.height}%`,
-        margin: 'auto',
+        transform: `translate(${-crop.x}%, ${-crop.y}%) scale(${100 / crop.width}, ${100 / crop.height})`,
+        transformOrigin: 'top left',
+        width: '100%',
+        height: '100%',
         transition: 'all 0.1s ease-out'
       };
     }
@@ -321,6 +470,8 @@ const Preview = ({
     return {
       display: isBuffering ? 'none' : 'block',
       objectFit: 'contain' as const,
+      width: '100%',
+      height: '100%',
       transition: 'all 0.1s ease-out'
     };
   };
@@ -334,23 +485,10 @@ const Preview = ({
     }
   }, [videoElement?.content.crop]);
 
-  // Debug helper
-  const logActiveAudio = () => {
-    console.log("Active audio elements:", activeAudioElementsRef.current.map(a => a.id));
-    console.log("Audio elements in refs:", Object.keys(audioRefs.current));
-  };
-
-  const toggleMute = useCallback(() => {
-    setIsMuted(!isMuted);
-  }, [isMuted]);
-
-  const handleVolumeChange = useCallback((value: number[]) => {
-    setVolume(value[0]);
-  }, []);
 
   return (
     <div className="panel w-full h-full flex flex-col">
-      <div className="relative flex-1 bg-black overflow-hidden rounded">
+      <div className="relative flex-1 bg-white overflow-hidden rounded">
         {videoElement ? (
           <>
             <video
@@ -361,7 +499,7 @@ const Preview = ({
               preload="auto"
               style={getVideoStyle()}
               onError={(e) => console.error("Video error:", e)}
-              muted={isMuted}
+              muted={videoMutedRef.current}
             />
             {isBuffering && (
               <div className="absolute inset-0 flex items-center justify-center">
@@ -370,138 +508,187 @@ const Preview = ({
             )}
           </>
         ) : (
-          <div className="w-full h-full flex items-center justify-center text-white/70 text-sm">
+          <div className="w-full h-full flex items-center justify-center text-black/70 text-sm">
             No media at current position
           </div>
         )}
-
-        {/* Render preview elements */}
-        <div className="absolute inset-0 pointer-events-none">
-          {elements
-            .filter(
-              (el) =>
-                el.type !== "video" &&
-                el.type !== "audio" &&
-                currentTime >= el.start &&
-                currentTime <= el.end
-            )
-            .map((element) => (
-              <div
-                key={element.id}
-                className="absolute"
-                style={{
-                  left: element.x,
-                  top: element.y,
-                  width: element.width,
-                  height: element.height,
-                  transform: `rotate(${element.rotation}deg)`,
-                }}
-              >
-                {element.type === "text" && (
-                  <div
-                    className="w-full h-full flex items-center justify-center"
-                    style={{
-                      fontSize: element.content.fontSize + "px",
-                      fontWeight: element.content.fontWeight,
-                      fontStyle: element.content.fontStyle,
-                      color: element.content.color,
-                      textAlign: element.content.alignment as any,
-                    }}
-                  >
-                    {element.content.content}
+        <div className="hidden">
+          <div className="absolute bottom-0 left-0 right-0 p-2 z-10">
+            {activeAudioElements.length > 0 && (
+              <div className="bg-white/60 rounded mb-2 p-2 text-white text-xs">
+                <div className="flex items-center justify-between">
+                  <span>Active Audio: {activeAudioElements.length} file(s)</span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      className="p-1 hover:bg-white/20 rounded"
+                      onClick={() => {
+                        const newPriority = audioPriority === 'video' ? 'audio' : 'video';
+                        toast.info(`Audio priority set to ${newPriority === 'video' ? 'video audio' : 'uploaded audio'}`);
+                      }}
+                    >
+                      {audioPriority === 'audio' ? 'Switch to Video Audio' : 'Switch to Uploaded Audio'}
+                    </button>
                   </div>
-                )}
-
-                {element.type === "image" && (
-                  <img
-                    src={element.content.src}
-                    alt="Preview image"
-                    className="w-full h-full"
-                    loading="eager"
-                    style={element.content.crop ? {
-                      objectFit: 'cover',
-                      objectPosition: `${element.content.crop.x}% ${element.content.crop.y}%`,
-                      width: `${element.content.crop.width}%`,
-                      height: `${element.content.crop.height}%`,
-                      margin: 'auto'
-                    } : {
-                      objectFit: 'contain'
-                    }}
-                  />
-                )}
+                </div>
               </div>
-            ))}
-        </div>
-      </div>
-
-      <div className="p-3 flex flex-col gap-2">
-        <div className="relative w-full h-3 bg-gray-200 rounded-full overflow-hidden cursor-pointer">
-          <div
-            className="absolute top-0 left-0 h-full bg-editor-accent"
-            style={{ width: `${(currentTime / duration) * 100}%` }}
-          />
-          <input
-            type="range"
-            min="0"
-            max={duration}
-            value={currentTime}
-            step="0.01"
-            onChange={(e) => onTimeUpdate(parseFloat(e.target.value))}
-            className="absolute top-0 left-0 w-full h-full opacity-0 cursor-pointer"
-          />
-        </div>
-
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1">
-            <IconButton
-              icon={SkipBack}
-              onClick={handleRestart}
-              tooltip="Restart"
-            />
-            <IconButton
-              icon={isPlaying ? Pause : Play}
-              onClick={isPlaying ? onPause : handlePlay}
-              tooltip={isPlaying ? "Pause" : "Play"}
-            />
-            <IconButton
-              icon={SkipForward}
-              onClick={() => onTimeUpdate(duration)}
-              tooltip="End"
-            />
-            <div className="relative">
-              <IconButton
-                icon={isMuted ? VolumeX : Volume2}
-                onClick={toggleMute}
-                onMouseEnter={() => setShowVolumeControl(true)}
-                onMouseLeave={() => setShowVolumeControl(false)}
-                tooltip="Volume"
-              />
-              {showVolumeControl && (
+            )}
+          </div>
+          {/* Render preview elements */}
+          <div className="absolute inset-0 pointer-events-none">
+            {elements
+              .filter(
+                (el) =>
+                  el.type !== "video" &&
+                  el.type !== "audio" &&
+                  currentTime >= el.start &&
+                  currentTime <= el.end
+              )
+              .map((element) => (
                 <div
-                  className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 p-2 bg-white rounded shadow-lg z-10 w-24"
+                  key={element.id}
+                  className="absolute"
+                  style={{
+                    left: element.x,
+                    top: element.y,
+                    width: element.width,
+                    height: element.height,
+                    transform: `rotate(${element.rotation}deg)`,
+                  }}
+                >
+                  {element.type === "text" && (
+                    <div
+                      className="w-full h-full flex items-center justify-center"
+                      style={{
+                        fontSize: element.content.fontSize + "px",
+                        fontWeight: element.content.fontWeight,
+                        fontStyle: element.content.fontStyle,
+                        color: element.content.color,
+                        textAlign: element.content.alignment as any,
+                      }}
+                    >
+                      {element.content.content}
+                    </div>
+                  )}
+
+                  {element.type === "image" && (
+                    <img
+                      src={element.content.src}
+                      alt="Preview image"
+                      className="w-full h-full"
+                      loading="eager"
+                      style={element.content.crop ? {
+                        objectFit: 'cover',
+                        objectPosition: `${element.content.crop.x}% ${element.content.crop.y}%`,
+                        width: `${element.content.crop.width}%`,
+                        height: `${element.content.crop.height}%`,
+                        margin: 'auto'
+                      } : {
+                        objectFit: 'contain'
+                      }}
+                    />
+                  )}
+                </div>
+              ))}
+          </div>
+        </div>
+
+        <div className="p-3 flex flex-col gap-2">
+          <div className="relative w-full h-3 bg-gray-200 rounded-full overflow-hidden cursor-pointer">
+            <div
+              className="absolute top-0 left-0 h-full bg-editor-accent"
+              style={{ width: `${(currentTime / duration) * 100}%` }}
+            />
+            <input
+              type="range"
+              min="0"
+              max={duration}
+              value={currentTime}
+              step="0.01"
+              onChange={(e) => onTimeUpdate(parseFloat(e.target.value))}
+              className="absolute top-0 left-0 w-full h-full opacity-0 cursor-pointer"
+            />
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1">
+              <IconButton
+                icon={SkipBack}
+                onClick={handleRestart}
+                tooltip="Restart"
+              />
+              <IconButton
+                icon={isPlaying ? Pause : Play}
+                onClick={isPlaying ? onPause : handlePlay}
+                tooltip={isPlaying ? "Pause" : "Play"}
+              />
+              <IconButton
+                icon={SkipForward}
+                onClick={() => onTimeUpdate(duration)}
+                tooltip="End"
+              />
+              <div className="relative">
+                <IconButton
+                  icon={isMuted ? VolumeX : Volume2}
+                  onClick={handleMuteToggle}
                   onMouseEnter={() => setShowVolumeControl(true)}
                   onMouseLeave={() => setShowVolumeControl(false)}
-                >
-                  <Slider
-                    value={[volume]}
-                    min={0}
-                    max={100}
-                    step={1}
-                    onValueChange={handleVolumeChange}
-                    disabled={isMuted}
-                    className={isMuted ? "opacity-50" : ""}
-                  />
-                </div>
+                  tooltip="Volume"
+                />
+                {showVolumeControl && (
+                  <div
+                    className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 p-2 bg-white rounded shadow-lg z-10 w-24"
+                    onMouseEnter={() => setShowVolumeControl(true)}
+                    onMouseLeave={() => setShowVolumeControl(false)}
+                  >
+                    <Slider
+                      value={[volume]}
+                      min={0}
+                      max={100}
+                      step={1}
+                      onValueChange={(value) => setVolume(value[0])}
+                      disabled={isMuted}
+                      className={isMuted ? "opacity-50" : ""}
+                    />
+                  </div>
+                )}
+              </div>
+              {audioPriority === 'audio' ? (
+                <span className="text-xs bg-editor-accent text-white px-2 py-1 rounded ml-1">Audio Priority</span>
+              ) : (
+                <span className="text-xs bg-gray-600 text-white px-2 py-1 rounded ml-1">Video Priority</span>
               )}
             </div>
-          </div>
-          <div className="text-xs font-mono">
-            {formatTime(currentTime)} / {formatTime(duration)}
+            <div className="text-xs font-mono">
+              {formatTime(currentTime)} / {formatTime(duration)}
+            </div>
           </div>
         </div>
+        {/* Render audio elements - making sure they're in the DOM */}
+        {activeAudioElements.map(audio => (
+          <audio
+            key={audio.id}
+            ref={(el) => {
+              if (el) audioRefs.current[audio.id] = el;
+            }}
+            src={audio.content.src}
+            preload="auto"
+            className="hidden"
+            muted={isMuted || (audioPriority === 'video' && Boolean(videoRef.current)) || audio.content.muted || false}
+          />
+        ))}
       </div>
     </div>
   );
 };
+
+// Debug helper
+
+// const toggleMute = useCallback(() => {
+//   setIsMuted(!isMuted);
+// }, [isMuted]);
+
+// const handleVolumeChange = useCallback((value: number[]) => {
+//   setVolume(value[0]);
+// }, []);
 
 export default Preview;

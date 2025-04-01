@@ -42,6 +42,7 @@ const MediaUploader = ({ onMediaUpload }: MediaUploaderProps) => {
     );
 
     if (mediaFiles.length === 0) {
+      
       toast.error("Please upload video or image files only");
       return;
     }
