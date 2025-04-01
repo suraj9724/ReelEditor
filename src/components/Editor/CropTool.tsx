@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { Crop, RotateCcw, Check, X } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { Crop, RotateCcw, MoveHorizontal, MoveVertical, Check, X } from "lucide-react";
 import { TimelineElement } from "@/types/timeline";
 import Panel from "../UI/Panel";
 import { Button } from "@/components/UI/button";
@@ -28,6 +28,11 @@ const CropTool = ({ elements, selectedElementId, onCropApply }: CropToolProps) =
   const [previewCrop, setPreviewCrop] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const [selectedAspectRatio, setSelectedAspectRatio] = useState<string | null>("freeform");
   const [showFullPreview, setShowFullPreview] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isSelecting, setIsSelecting] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [selectionStart, setSelectionStart] = useState({ x: 0, y: 0 });
+  const previewRef = useRef<HTMLDivElement>(null);
 
   // Aspect ratio options
   const aspectRatioOptions: AspectRatioOption[] = [
@@ -58,8 +63,10 @@ const CropTool = ({ elements, selectedElementId, onCropApply }: CropToolProps) =
         setCropWidth(crop.width);
         setCropHeight(crop.height);
         setPreviewCrop(crop);
-        setSelectedAspectRatio("freeform"); // Reset aspect ratio selection
+        // setSelectedAspectRatio("freeform"); // Reset aspect ratio selection
       }
+    } else {
+      setSelectedAspectRatio("freeform"); // Reset aspect ratio when no element is selected
     }
   }, [selectedElement]);
 
@@ -78,23 +85,105 @@ const CropTool = ({ elements, selectedElementId, onCropApply }: CropToolProps) =
   // Debounced crop application
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (selectedElementId) {
-        onCropApply(selectedElementId, {
-          x: cropX,
-          y: cropY,
-          width: cropWidth,
-          height: cropHeight
-        });
+      if (selectedElementId && previewCrop) {
+        onCropApply(selectedElementId, previewCrop);
       }
-    }, 100); // Increased debounce time for smoother performance
+    }, 100);
 
     return () => clearTimeout(timer);
-  }, [cropX, cropY, cropWidth, cropHeight, selectedElementId, onCropApply]);
+  }, [previewCrop, selectedElementId, onCropApply]);
 
   // Update preview on slider change
   useEffect(() => {
     updatePreviewCrop();
   }, [cropX, cropY, cropWidth, cropHeight]);
+
+  // Handle mouse down on preview for freeform selection
+  const handlePreviewMouseDown = (e: React.MouseEvent) => {
+    if (selectedAspectRatio !== "freeform" || showFullPreview) return;
+
+    const rect = previewRef.current?.getBoundingClientRect();
+    if (!rect) return;
+
+    const x = ((e.clientX - rect.left) / rect.width) * 100;
+    const y = ((e.clientY - rect.top) / rect.height) * 100;
+
+    setIsSelecting(true);
+    setSelectionStart({ x, y });
+    setCropX(x);
+    setCropY(y);
+    setCropWidth(0);
+    setCropHeight(0);
+  };
+
+  // Handle mouse move for freeform selection
+  const handlePreviewMouseMove = (e: React.MouseEvent) => {
+    if (!isSelecting || !previewRef.current || selectedAspectRatio !== "freeform" || showFullPreview) return;
+
+    const rect = previewRef.current.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 100;
+    const y = ((e.clientY - rect.top) / rect.height) * 100;
+
+    // Calculate width and height based on selection direction
+    let newX = Math.min(selectionStart.x, x);
+    let newY = Math.min(selectionStart.y, y);
+    let newWidth = Math.abs(x - selectionStart.x);
+    let newHeight = Math.abs(y - selectionStart.y);
+
+    // Constrain to bounds
+    newX = Math.max(0, newX);
+    newY = Math.max(0, newY);
+    newWidth = Math.min(100 - newX, newWidth);
+    newHeight = Math.min(100 - newY, newHeight);
+
+    setCropX(newX);
+    setCropY(newY);
+    setCropWidth(newWidth);
+    setCropHeight(newHeight);
+  };
+
+  // Handle mouse up for freeform selection
+  const handlePreviewMouseUp = () => {
+    setIsSelecting(false);
+    // Ensure minimum dimensions
+    if (cropWidth < 5) setCropWidth(5);
+    if (cropHeight < 5) setCropHeight(5);
+  };
+
+  // Handle mouse down on crop boundary
+  const handleCropMouseDown = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsDragging(true);
+    setDragStart({ x: e.clientX, y: e.clientY });
+  };
+
+  // Handle mouse move for dragging crop boundary
+  const handleCropMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging || !previewRef.current || !previewCrop) return;
+
+    const rect = previewRef.current.getBoundingClientRect();
+    const deltaX = ((e.clientX - dragStart.x) / rect.width) * 100;
+    const deltaY = ((e.clientY - dragStart.y) / rect.height) * 100;
+
+    // Calculate new position
+    let newX = cropX + deltaX;
+    let newY = cropY + deltaY;
+
+    // Constrain to bounds
+    newX = Math.max(0, Math.min(newX, 100 - cropWidth));
+    newY = Math.max(0, Math.min(newY, 100 - cropHeight));
+
+    if (newX !== cropX || newY !== cropY) {
+      setCropX(newX);
+      setCropY(newY);
+      setDragStart({ x: e.clientX, y: e.clientY });
+    }
+  };
+
+  // Handle mouse up for dragging crop boundary
+  const handleCropMouseUp = () => {
+    setIsDragging(false);
+  };
 
   // Apply the crop
   const handleApplyCrop = () => {
@@ -112,16 +201,7 @@ const CropTool = ({ elements, selectedElementId, onCropApply }: CropToolProps) =
       height: cropHeight
     };
 
-    // Calculate the actual crop values
-    const actualCrop = {
-      x: cropX,
-      y: cropY,
-      width: cropWidth,
-      height: cropHeight
-    };
-
-    onCropApply(selectedElementId, actualCrop);
-    setPreviewCrop(actualCrop);
+    onCropApply(selectedElementId, crop);
     toast.success("Crop applied successfully");
   };
 
@@ -148,7 +228,13 @@ const CropTool = ({ elements, selectedElementId, onCropApply }: CropToolProps) =
     if (!ratioOption) return;
 
     // For freeform, don't change the current crop dimensions
-    if (ratioOption.value === null) return;
+    if (ratioOption.id === "freeform") {
+      setShowFullPreview(true);
+      onCropApply(selectedElementId!, null); // Apply null crop for freeform
+      return;
+    } else {
+      setShowFullPreview(false);
+    }
 
     // Calculate new dimensions based on the aspect ratio
     let newWidth = cropWidth;
@@ -196,11 +282,19 @@ const CropTool = ({ elements, selectedElementId, onCropApply }: CropToolProps) =
               <button
                 className="text-xs text-editor-accent hover:underline"
                 onClick={() => setShowFullPreview(!showFullPreview)}
+                disabled={selectedAspectRatio === 'freeform'}
               >
                 {showFullPreview ? 'Show Cropped' : 'Show Full'}
               </button>
             </div>
-            <div className="relative border border-gray-200 rounded-md overflow-hidden">
+            <div
+              className="relative border border-gray-200 rounded-md overflow-hidden"
+              ref={previewRef}
+              onMouseDown={handlePreviewMouseDown}
+              onMouseMove={handlePreviewMouseMove}
+              onMouseUp={handlePreviewMouseUp}
+              onMouseLeave={handlePreviewMouseUp}
+            >
               <div className="relative" style={{ paddingBottom: '56.25%' }}>
                 <div className="absolute inset-0 overflow-hidden">
                   {selectedElement.type === 'video' && (
@@ -219,7 +313,7 @@ const CropTool = ({ elements, selectedElementId, onCropApply }: CropToolProps) =
                       >
                         <video
                           src={selectedElement.content.src}
-                          className="w-full h-full object-cover"
+                          className="w-full h-full"
                           style={{
                             transform: previewCrop ?
                               `translate(
@@ -232,6 +326,35 @@ const CropTool = ({ elements, selectedElementId, onCropApply }: CropToolProps) =
                           loop
                         />
                       </div>
+                      {!showFullPreview && previewCrop && (
+                        <div
+                          className="absolute border-2 border-white border-dashed cursor-move"
+                          style={{
+                            display: selectedAspectRatio === 'freeform' && !showFullPreview ? 'block' : 'none',
+                            left: `${previewCrop?.x}%`,
+                            top: `${previewCrop?.y}%`,
+                            width: `${previewCrop?.width}%`,
+                            height: `${previewCrop?.height}%`,
+                          }}
+                          onMouseDown={handleCropMouseDown}
+                        >
+                          <div className="absolute -top-1 -left-1 w-2 h-2 bg-white rounded-full cursor-nwse-resize" />
+                          <div className="absolute -top-1 -right-1 w-2 h-2 bg-white rounded-full cursor-nesw-resize" />
+                          <div className="absolute -bottom-1 -left-1 w-2 h-2 bg-white rounded-full cursor-nesw-resize" />
+                          <div className="absolute -bottom-1 -right-1 w-2 h-2 bg-white rounded-full cursor-nwse-resize" />
+                        </div>
+                      )}
+                      {isSelecting && selectedAspectRatio === "freeform" && (
+                        <div
+                          className="absolute border-2 border-blue-400 bg-blue-400 bg-opacity-20"
+                          style={{
+                            left: `${cropX}%`,
+                            top: `${cropY}%`,
+                            width: `${cropWidth}%`,
+                            height: `${cropHeight}%`,
+                          }}
+                        />
+                      )}
                     </div>
                   )}
                   {selectedElement.type === 'image' && (
@@ -259,6 +382,35 @@ const CropTool = ({ elements, selectedElementId, onCropApply }: CropToolProps) =
                         }}
                         alt="Preview"
                       />
+                      {!showFullPreview && previewCrop && (
+                        <div
+                          className="absolute border-2 border-white border-dashed cursor-move"
+                          style={{
+                            display: selectedAspectRatio === 'freeform' && !showFullPreview ? 'block' : 'none',
+                            left: `${previewCrop?.x}%`,
+                            top: `${previewCrop?.y}%`,
+                            width: `${previewCrop?.width}%`,
+                            height: `${previewCrop?.height}%`,
+                          }}
+                          onMouseDown={handleCropMouseDown}
+                        >
+                          <div className="absolute -top-1 -left-1 w-2 h-2 bg-white rounded-full cursor-nwse-resize" />
+                          <div className="absolute -top-1 -right-1 w-2 h-2 bg-white rounded-full cursor-nesw-resize" />
+                          <div className="absolute -bottom-1 -left-1 w-2 h-2 bg-white rounded-full cursor-nesw-resize" />
+                          <div className="absolute -bottom-1 -right-1 w-2 h-2 bg-white rounded-full cursor-nwse-resize" />
+                        </div>
+                      )}
+                      {isSelecting && selectedAspectRatio === "freeform" && (
+                        <div
+                          className="absolute border-2 border-blue-400 bg-blue-400 bg-opacity-20"
+                          style={{
+                            left: `${cropX}%`,
+                            top: `${cropY}%`,
+                            width: `${cropWidth}%`,
+                            height: `${cropHeight}%`,
+                          }}
+                        />
+                      )}
                     </div>
                   )}
                 </div>
@@ -321,12 +473,11 @@ const CropTool = ({ elements, selectedElementId, onCropApply }: CropToolProps) =
             <div className="text-sm font-medium mb-2">Width</div>
             <Slider
               value={[cropWidth]}
-              min={20}
+              min={5}
               max={100}
               step={0.1}
               onValueChange={(value) => {
                 setCropWidth(value[0]);
-                // Adjust height based on aspect ratio if one is selected
                 if (selectedAspectRatio && selectedAspectRatio !== "freeform") {
                   const ratio = aspectRatioOptions.find(opt => opt.id === selectedAspectRatio);
                   if (ratio && ratio.value) {
@@ -344,12 +495,11 @@ const CropTool = ({ elements, selectedElementId, onCropApply }: CropToolProps) =
             <div className="text-sm font-medium mb-2">Height</div>
             <Slider
               value={[cropHeight]}
-              min={20}
+              min={5}
               max={100}
               step={0.1}
               onValueChange={(value) => {
                 setCropHeight(value[0]);
-                // Adjust width based on aspect ratio if one is selected
                 if (selectedAspectRatio && selectedAspectRatio !== "freeform") {
                   const ratio = aspectRatioOptions.find(opt => opt.id === selectedAspectRatio);
                   if (ratio && ratio.value) {

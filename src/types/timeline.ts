@@ -1,5 +1,21 @@
-
-export type ToolType = "select" | "text" | "media" | "audio" | "transition" | "crop" | "speed" | "merge" | "trim" | "effects" | "volume";
+export type ToolType =
+  | "select"
+  | "text"
+  | "media"
+  | "audio"
+  | "transition"
+  | "crop"
+  | "speed"
+  | "merge"
+  | "trim"
+  | "effects"
+  | "volume"
+  | "text-bold"
+  | "text-italic"
+  | "text-underline"
+  | "text-align-left"
+  | "text-align-center"
+  | "text-align-right";
 
 export interface TimelineElement {
   id: string;

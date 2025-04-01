@@ -347,7 +347,11 @@ const Index = () => {
       case "audio":
         return (
           <div className="flex flex-col gap-4 p-4">
-            <AudioUploader onAudioUpload={handleAudioUpload} />
+            <AudioUploader
+              onAudioUpload={handleAudioUpload}
+              isTimelinePlaying={isPlaying}
+              onTimelinePlayToggle={togglePlayback}
+            />
 
             <Panel title="Audio Library" className="flex-1" collapsible={isMobile}>
               {audioItems.length === 0 ? (
@@ -551,7 +555,7 @@ const Index = () => {
 
           <div className="flex-1 flex justify-center items-center bg-gray-200 p-4 overflow-auto">
             {activePanel !== null ? (
-              <div className="bg-white rounded-md border border-purple-400 shadow-lg overflow-hidden">
+              <div className="bg-white rounded-md border border-purple-400 shadow-lg overflow-hidden w-[700px] h-[400px]">
                 <Canvas
                   width={canvasWidth}
                   height={canvasHeight}
@@ -576,6 +580,7 @@ const Index = () => {
                   onRestart={restartTimeline}
                   elements={elements}
                   selectedElementId={selectedElementId}
+                  elementCrop={(elements.find(el => el.id === selectedElementId) as any)?.crop}
                 />
               </div>
             )}

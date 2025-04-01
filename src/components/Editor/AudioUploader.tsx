@@ -1,15 +1,25 @@
-import { useRef, useState } from "react";
-import { Music, Upload } from "lucide-react";
+import { useRef, useState, useEffect } from "react";
+import { Music, Upload, Play, Pause } from "lucide-react";
 import Panel from "../UI/Panel";
 import { toast } from "sonner";
+import { Button } from "@/components/UI/button";
 
 interface AudioUploaderProps {
   onAudioUpload: (files: File[]) => void;
+  isTimelinePlaying?: boolean;
+  onTimelinePlayToggle?: () => void;
 }
 
-const AudioUploader = ({ onAudioUpload }: AudioUploaderProps) => {
+const AudioUploader = ({
+  onAudioUpload,
+  isTimelinePlaying = false,
+  onTimelinePlayToggle
+}: AudioUploaderProps) => {
   const [isDragging, setIsDragging] = useState(false);
+  const [previewAudio, setPreviewAudio] = useState<{ file: File; url: string } | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -49,10 +59,57 @@ const AudioUploader = ({ onAudioUpload }: AudioUploaderProps) => {
       return;
     }
 
+    // Create preview for the first file
+    const file = audioFiles[0];
+    const url = URL.createObjectURL(file);
+    setPreviewAudio({ file, url });
+
+    // Upload all files
     onAudioUpload(audioFiles);
     toast.success(`Added ${audioFiles.length} audio file${audioFiles.length !== 1 ? 's' : ''}`);
   };
 
+  const togglePlayPause = () => {
+    if (!audioRef.current || !previewAudio) return;
+    // If we have timeline control, use it to sync playback state
+    if (onTimelinePlayToggle) {
+      onTimelinePlayToggle();
+      return;
+    }
+
+    // If no timeline control, manage local playback
+    if (isPlaying) {
+      audioRef.current.pause();
+    } else {
+      audioRef.current.play().catch(err => {
+        console.error("Failed to play audio:", err);
+        toast.error("Failed to play audio preview");
+      });
+    }
+
+    setIsPlaying(!isPlaying);
+  };
+  // Sync local play state with timeline play state
+  useEffect(() => {
+    if (audioRef.current && previewAudio) {
+      if (isTimelinePlaying && !isPlaying) {
+        audioRef.current.play().catch(err => {
+          console.error("Failed to play audio:", err);
+        });
+        setIsPlaying(true);
+      } else if (!isTimelinePlaying && isPlaying) {
+        audioRef.current.pause();
+        setIsPlaying(false);
+      }
+    }
+  }, [isTimelinePlaying, isPlaying, previewAudio]);
+
+  const handleEnded = () => {
+    setIsPlaying(false);
+    if (onTimelinePlayToggle && isTimelinePlaying) {
+      onTimelinePlayToggle(); // Notify timeline that audio has ended
+    }
+  };
   const handleButtonClick = () => {
     fileInputRef.current?.click();
   };
@@ -98,6 +155,31 @@ const AudioUploader = ({ onAudioUpload }: AudioUploaderProps) => {
           onChange={handleFileSelect}
         />
       </div>
+      {previewAudio && (
+        <div className="mt-4 p-3 border border-editor-border rounded-md">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm f              {isTimelinePlaying || isPlaying ? <Pause size={16} /> : <Play size={16} />}
+ont-medium truncate max-w-[70%]">
+              {previewAudio.file.name}
+            </h3>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={togglePlayPause}
+            >
+              {isTimelinePlaying || isPlaying ? <Pause size={16} /> : <Play size={16} />}
+            </Button>
+          </div>
+          <audio
+            ref={audioRef}
+            src={previewAudio.url}
+            className="w-full"
+            onEnded={handleEnded}
+            controls
+          />
+        </div>
+      )}
     </Panel>
   );
 };

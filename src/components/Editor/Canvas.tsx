@@ -479,7 +479,7 @@ const Canvas = ({
         </div>
       </div>
 
-      <div className="flex-1 flex items-center justify-center bg-[#1E1E1E] rounded-lg overflow-hidden">
+      <div className="flex-1 flex items-center justify-center bg-white rounded-lg overflow-hidden">
         <div
           ref={canvasRef}
           className="relative w-full h-full flex items-center justify-center"
@@ -567,7 +567,8 @@ const Canvas = ({
                             `translate(
                               ${-element.content.crop.x}%, 
                               ${-element.content.crop.y}%
-                            ) scale(${100 / element.content.crop.width}, ${100 / element.content.crop.height})` : 'none'
+                            ) scale(${100 / element.content.crop.width}, ${100 / element.content.crop.height})` : 'none',
+                        transformOrigin: 'top left'
                       }}
                       muted={videoStates[element.id]?.isMuted || false}
                       autoPlay={false}
