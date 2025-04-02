@@ -15,6 +15,7 @@ interface CanvasProps {
   onElementDelete?: (id: string) => void;
   currentTime: number;
   isPlaying: boolean;
+  audioPriority: 'video' | 'audio';
 }
 
 const Canvas = ({
@@ -28,6 +29,7 @@ const Canvas = ({
   onElementDelete,
   currentTime,
   isPlaying,
+  audioPriority,
 }: CanvasProps) => {
   const canvasRef = useRef<HTMLDivElement>(null);
   const videoRefs = useRef<Record<string, HTMLVideoElement | null>>({});

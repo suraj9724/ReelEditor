@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Trash, Upload, Merge, Music, Save, Download, Play, Pause, TextIcon, ImageIcon, Layers, ZoomIn, ZoomOut, Crop, AudioLines } from "lucide-react";
 
 import Header from "@/components/Layout/Header";
@@ -14,13 +14,13 @@ import AudioControl from "@/components/Editor/AudioControl";
 import CropTool from "@/components/Editor/CropTool";
 import Panel from "@/components/UI/Panel";
 import IconButton from "@/components/UI/IconButton";
+import PersistentAudioPlayer from "@/components/Editor/PersistentAudioPlayer";
 
 import useMediaLibrary from "@/hooks/useMediaLibrary";
 import useTimeline from "@/hooks/useTimeline";
 import useEditor from "@/hooks/useEditor";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { toast } from "sonner";
-import { Button } from "@/components/UI/button";
 import { ToolType } from "@/types/timeline";
 
 const Index = () => {
@@ -30,6 +30,9 @@ const Index = () => {
   const [selectedVideosForMerge, setSelectedVideosForMerge] = useState<string[]>([]);
   const [isExporting, setIsExporting] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(220);
+  const [persistentAudioFile, setPersistentAudioFile] = useState<{ name: string; url: string } | null>(null);
+  const [lastActivePanel, setLastActivePanel] = useState<string | null>(null);
+  const audioElementsRef = useRef<HTMLAudioElement[]>([]);
 
   const {
     mediaItems,
@@ -45,6 +48,7 @@ const Index = () => {
     currentTime,
     duration,
     isPlaying,
+    audioPriority,
     setSelectedElementId,
     setCurrentTime,
     addMediaElement,
@@ -57,6 +61,7 @@ const Index = () => {
     updateElementSpeed,
     updateElementVolume,
     toggleElementMute,
+    updateAudioPriority,
     cropElement,
     mergeVideoElements,
     togglePlayback,
@@ -82,26 +87,21 @@ const Index = () => {
     saveProject,
   } = useEditor();
 
-  // Handle file uploads
   const handleMediaUpload = async (files: File[]) => {
     const newItems = await addMedia(files);
 
-    // Automatically add to timeline if in media tool
     if (activeTool === "media" && newItems.length > 0) {
       // Find the end time of the last video in the timeline
       const lastVideoEnd = elements
         .filter(el => el.type === "video")
         .reduce((maxEnd, el) => Math.max(maxEnd, el.end), 0);
-
-      // Place each item sequentially starting from the end of the last video
       newItems.forEach((item, index) => {
-        // Calculate start time for sequential placement
         const prevItemsTime = index > 0
           ? newItems.slice(0, index).reduce((total, item) => total + (item.duration || 5), 0)
           : 0;
 
         if (item.type === "audio") {
-          addAudioElement(item, 2, lastVideoEnd + prevItemsTime);
+          addAudioElement(item, 2, currentTime + prevItemsTime);
         } else {
           addMediaElement(item, 0, lastVideoEnd + prevItemsTime);
         }
@@ -109,55 +109,51 @@ const Index = () => {
     }
   };
 
-  // Handle audio upload
   const handleAudioUpload = async (files: File[]) => {
     const newItems = await addMedia(files);
 
-    // Add audio to timeline
     newItems.forEach((item, index) => {
       const prevItemsTime = index > 0
         ? newItems.slice(0, index).reduce((total, item) => total + (item.duration || 5), 0)
         : 0;
 
       addAudioElement(item, 2, currentTime + prevItemsTime);
+
+      if (index === 0) {
+        setPersistentAudioFile({
+          name: item.name,
+          url: item.url
+        });
+      }
     });
   };
 
-  // Handle media library item click
   const handleMediaItemClick = (item: any) => {
     if (activeTool === "merge") {
-      // In merge mode, select videos for merging
       if (item.type !== "video") {
         toast.error("Only videos can be merged");
         return;
       }
 
-      // Check if this item is already in the timeline
       const elementInTimeline = elements.find(el =>
         el.type === "video" && el.content.src === item.url
       );
 
       if (!elementInTimeline) {
-        // Add to timeline first
         const elementId = addMediaElement(item);
         handleSelectForMerge(elementId);
       } else {
-        // Select existing element
         handleSelectForMerge(elementInTimeline.id);
       }
     } else {
-      // Normal mode, add to timeline
       // Find the end time of the last video in the timeline
       const lastVideoEnd = elements
         .filter(el => el.type === "video")
         .reduce((maxEnd, el) => Math.max(maxEnd, el.end), 0);
-
-      // Add the new video at the end of the last video
       addMediaElement(item, 0, lastVideoEnd);
     }
   };
 
-  // Handle selecting elements for merging
   const handleSelectForMerge = (elementId: string) => {
     const element = elements.find(el => el.id === elementId);
     if (!element || element.type !== "video") {
@@ -171,14 +167,13 @@ const Index = () => {
       } else {
         if (prev.length >= 2) {
           toast.info("You can only select two videos to merge at once");
-          return [prev[1], elementId]; // Keep the second and add the new one
+          return [prev[1], elementId];
         }
         return [...prev, elementId];
       }
     });
   };
 
-  // Handle merging videos
   const handleMergeVideos = () => {
     if (selectedVideosForMerge.length !== 2) {
       toast.error("Please select exactly two videos to merge");
@@ -190,21 +185,17 @@ const Index = () => {
     setActiveTool("select");
   };
 
-  // Handle adding text
   const handleAddText = (textProps: any) => {
     addTextElement(textProps);
   };
 
-  // Handle deleting selected element
   const handleDeleteElement = () => {
     if (selectedElementId) {
       removeElement(selectedElementId);
     }
   };
 
-  // Handle tool changes
   useEffect(() => {
-    // Set the active panel based on the active tool
     switch (activeTool) {
       case "media":
         setActivePanel("media");
@@ -230,24 +221,22 @@ const Index = () => {
     }
   }, [activeTool]);
 
-  // Handle playback
   useEffect(() => {
     if (!isPlaying) return;
 
     let animationFrame: number;
     let lastTime = performance.now();
 
-    const updateTime = (currentTime: number) => {
-      const delta = (currentTime - lastTime) / 1000;
-      lastTime = currentTime;
+    const updateTime = (currentTimeStamp: number) => {
+      const delta = (currentTimeStamp - lastTime) / 1000;
+      lastTime = currentTimeStamp;
 
-      setCurrentTime((time) => {
-        // Stop at the end of the timeline
-        if (time + delta >= duration) {
+      setCurrentTime((time: number) => {
+        const newTime = time + delta >= duration ? duration : time + delta;
+        if (newTime >= duration) {
           setIsPlaying(false);
-          return duration;
         }
-        return time + delta;
+        return newTime;
       });
 
       animationFrame = requestAnimationFrame(updateTime);
@@ -260,21 +249,36 @@ const Index = () => {
     };
   }, [isPlaying, duration, setCurrentTime, setIsPlaying]);
 
-  // Handle export
+  useEffect(() => {
+    if (activePanel && activePanel !== lastActivePanel) {
+      setLastActivePanel(activePanel);
+    }
+  }, [activePanel, lastActivePanel]);
+
+  useEffect(() => {
+    const syncAudioToTimeline = () => {
+      if (audioElementsRef.current && audioElementsRef.current.length > 0) {
+        audioElementsRef.current.forEach(audio => {
+          if (Math.abs(audio.currentTime - currentTime) > 0.5) {
+            audio.currentTime = currentTime;
+          }
+        });
+      }
+    };
+
+    syncAudioToTimeline();
+  }, [currentTime]);
+
   const handleExport = () => {
     setIsExporting(true);
 
-    // Use the browser's download dialog via anchor element
     const handleSaveAs = () => {
       const downloadLink = document.createElement('a');
       downloadLink.style.display = 'none';
 
-      // Create a fake file for demonstration
-      // In a real app, this would be a real video file from the server
       const dummy = new Blob(['Example video data'], { type: 'video/mp4' });
       const url = URL.createObjectURL(dummy);
 
-      // This will open the browser's "Save As" dialog
       downloadLink.href = url;
       downloadLink.download = `${projectName.replace(/\s+/g, '-')}.mp4`;
 
@@ -292,7 +296,6 @@ const Index = () => {
     handleSaveAs();
   };
 
-  // Sidebar navigation items
   const sidebarItems = [
     { id: "design", label: "Design", icon: Layers },
     { id: "elements", label: "Elements", icon: Layers },
@@ -300,11 +303,9 @@ const Index = () => {
     { id: "media", label: "Media", icon: ImageIcon },
     { id: "audio", label: "Audio", icon: AudioLines },
     { id: "crop", label: "Crop", icon: Crop },
-    // { id: "uploads", label: "Uploads", icon: Upload },
     { id: "tools", label: "Tools", icon: ImageIcon },
   ];
 
-  // Render the active panel based on sidebar selection
   const renderActivePanel = () => {
     switch (activePanel) {
       case "media":
@@ -351,6 +352,7 @@ const Index = () => {
               onAudioUpload={handleAudioUpload}
               isTimelinePlaying={isPlaying}
               onTimelinePlayToggle={togglePlayback}
+              previewAudio={persistentAudioFile ? { file: new File([], persistentAudioFile.name), url: persistentAudioFile.url } : null}
             />
 
             <Panel title="Audio Library" className="flex-1" collapsible={isMobile}>
@@ -365,7 +367,13 @@ const Index = () => {
                     <div
                       key={item.id}
                       className="flex items-center gap-2 p-2 border border-editor-border rounded-md hover:bg-editor-background/50 cursor-pointer"
-                      onClick={() => addAudioElement(item)}
+                      onClick={() => {
+                        addAudioElement(item);
+                        setPersistentAudioFile({
+                          name: item.name,
+                          url: item.url
+                        });
+                      }}
                     >
                       <Music size={20} className="text-editor-muted" />
                       <div className="flex-1 min-w-0">
@@ -387,6 +395,8 @@ const Index = () => {
               selectedElementId={selectedElementId}
               onVolumeChange={updateElementVolume}
               onMuteToggle={toggleElementMute}
+              onAudioPriorityChange={updateAudioPriority}
+              audioPriority={audioPriority}
             />
           </div>
         );
@@ -481,7 +491,6 @@ const Index = () => {
     }
   };
 
-  // Canva-style sidebar
   const renderSidebar = () => {
     return (
       <div className="bg-gray-50 border-r border-editor-border w-[60px] flex flex-col overflow-hidden">
@@ -495,11 +504,49 @@ const Index = () => {
             <span className="text-[10px] text-gray-600">{item.label}</span>
           </div>
         ))}
+
+        {elements.some(el => el.type === 'audio' || el.type === 'video') && activePanel !== 'audio' && (
+          <div className="mt-auto flex flex-col items-center p-2 border-t border-gray-200">
+            <button
+              onClick={() => updateAudioPriority(audioPriority === 'video' ? 'audio' : 'video')}
+              className={`w-full p-1 rounded text-center text-[10px] ${audioPriority === 'audio' ? 'bg-editor-accent text-white' : 'bg-gray-200'}`}
+            >
+              {audioPriority === 'audio' ? 'Audio' : 'Video'}
+            </button>
+          </div>
+        )}
       </div>
     );
   };
 
-  // Filter for canvas elements
+  const renderHiddenAudioElements = () => {
+    const audioElements = elements.filter(el => el.type === "audio");
+    if (audioElements.length > 0) {
+      return (
+        <div className="hidden">
+          {audioElements.map(audio => (
+            <audio
+              key={audio.id}
+              src={audio.content.src}
+              preload="auto"
+              ref={el => {
+                if (el) {
+                  const index = audioElementsRef.current.findIndex(audio => audio.src === el.src);
+                  if (index === -1) {
+                    audioElementsRef.current.push(el);
+                  } else {
+                    audioElementsRef.current[index] = el;
+                  }
+                }
+              }}
+            />
+          ))}
+        </div>
+      );
+    }
+    return null;
+  };
+
   const canvasElements = elements.filter(el => el.type !== "audio").map(el => ({
     id: el.id,
     type: el.type,
@@ -526,15 +573,12 @@ const Index = () => {
       />
 
       <div className="flex-1 flex overflow-hidden">
-        {/* Left sidebar */}
         {renderSidebar()}
 
-        {/* Left Panel */}
         <div className={`${activePanel ? 'w-[260px]' : 'w-0'} border-r border-editor-border overflow-y-auto bg-white transition-all duration-300`}>
           {renderActivePanel()}
         </div>
 
-        {/* Main Canvas Area */}
         <div className="flex-1 flex flex-col overflow-hidden">
           <div className="flex items-center justify-between bg-gray-100 p-2 border-b border-editor-border">
             <div className="flex items-center gap-2">
@@ -555,7 +599,7 @@ const Index = () => {
 
           <div className="flex-1 flex justify-center items-center bg-gray-200 p-4 overflow-auto">
             {activePanel !== null ? (
-              <div className="bg-white rounded-md border border-purple-400 shadow-lg overflow-hidden w-[700px] h-[400px]">
+              <div className="bg-white rounded-md border border-purple-400 shadow-lg overflow-hidden">
                 <Canvas
                   width={canvasWidth}
                   height={canvasHeight}
@@ -566,6 +610,7 @@ const Index = () => {
                   onElementResize={updateElementDimensions}
                   currentTime={currentTime}
                   isPlaying={isPlaying}
+                  audioPriority={audioPriority}
                 />
               </div>
             ) : (
@@ -579,8 +624,9 @@ const Index = () => {
                   onTimeUpdate={setCurrentTime}
                   onRestart={restartTimeline}
                   elements={elements}
+                  audioPriority={audioPriority}
                   selectedElementId={selectedElementId}
-                  elementCrop={(elements.find(el => el.id === selectedElementId) as any)?.crop}
+                  elementCrop={(elements.find(el => el.id === selectedElementId) as any)?.content?.crop}
                 />
               </div>
             )}
@@ -607,11 +653,22 @@ const Index = () => {
               zoom={timelineZoom}
               onZoomChange={setTimelineZoom}
               onTrimClip={updateElementTimeRange}
-              onDeleteClip={removeElement}
             />
           </div>
         </div>
       </div>
+
+      {persistentAudioFile && activePanel !== "audio" && (
+        <div className="fixed bottom-4 right-4 z-50 w-64 shadow-lg">
+          <PersistentAudioPlayer
+            audioFile={persistentAudioFile}
+            isPlaying={isPlaying}
+            onPlayPause={togglePlayback}
+          />
+        </div>
+      )}
+
+      {renderHiddenAudioElements()}
     </div>
   );
 };

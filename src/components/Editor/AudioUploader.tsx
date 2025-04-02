@@ -8,18 +8,27 @@ interface AudioUploaderProps {
   onAudioUpload: (files: File[]) => void;
   isTimelinePlaying?: boolean;
   onTimelinePlayToggle?: () => void;
+  previewAudio?: { file: File; url: string } | null;
 }
 
 const AudioUploader = ({
   onAudioUpload,
   isTimelinePlaying = false,
-  onTimelinePlayToggle
+  onTimelinePlayToggle,
+  previewAudio: externalPreviewAudio
 }: AudioUploaderProps) => {
   const [isDragging, setIsDragging] = useState(false);
-  const [previewAudio, setPreviewAudio] = useState<{ file: File; url: string } | null>(null);
+  const [previewAudio, setPreviewAudio] = useState<{ file: File; url: string } | null>(externalPreviewAudio || null);
   const [isPlaying, setIsPlaying] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
+
+
+  useEffect(() => {
+    if (externalPreviewAudio) {
+      setPreviewAudio(externalPreviewAudio);
+    }
+  }, [externalPreviewAudio]);
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();

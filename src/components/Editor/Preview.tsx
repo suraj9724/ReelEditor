@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Play,
   Pause,
@@ -53,6 +53,9 @@ const Preview = ({
   const previousAudioPriorityRef = useRef(audioPriority);
   const didInitialPlayRef = useRef<Record<string, boolean>>({});
   const videoMutedRef = useRef<boolean>(false);
+  const timeJumpedRef = useRef<boolean>(false);
+  const audioSyncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const forceSyncRef = useRef<boolean>(false);
 
   const formatTime = (timeInSeconds: number): string => {
     const minutes = Math.floor(timeInSeconds / 60);
@@ -111,7 +114,19 @@ const Preview = ({
       }
     });
   };
-
+  const syncAudioPositions = () => {
+    activeAudioElementsRef.current.forEach(audio => {
+      const audioElement = audioRefs.current[audio.id];
+      if (audioElement) {
+        const audioLocalTime = Math.max(0, currentTime - audio.start);
+        if (Math.abs(audioElement.currentTime - audioLocalTime) > 0.1 || forceSyncRef.current) {
+          console.log(`Synchronizing audio ${audio.id} time to ${audioLocalTime}`);
+          audioElement.currentTime = audioLocalTime;
+        }
+      }
+    });
+    forceSyncRef.current = false;
+  };
   useEffect(() => {
     const activeAudioElements = elements.filter(
       el => el.type === "audio" &&
@@ -135,6 +150,11 @@ const Preview = ({
 
         audioRefs.current[audio.id] = audioElement;
         didInitialPlayRef.current[audio.id] = false;
+        if (isPlaying && !audio.content.muted && audioPriority === 'audio') {
+          audioElement.play().catch(error => {
+            console.error("Error playing new audio:", error);
+          });
+        }
       }
     });
 
@@ -149,164 +169,54 @@ const Preview = ({
     });
 
     updateMediaStates();
-  }, [elements, currentTime, audioPriority]);
+    if (Math.abs(currentTime - lastTimeRef.current) > 0.2 || forceSyncRef.current) {
+      timeJumpedRef.current = true;
+      syncAudioPositions();
+    }
 
-  // Find the selected element
-  // const selectedElement = selectedElementId
-  //   ? elements.find(el => el.id === selectedElementId)
-  //   : null;
-
-  // Update volume and mute state when selected element changes
-  // useEffect(() => {
-  //   if (selectedElement) {
-  //     if (selectedElement.type === 'audio' || selectedElement.type === 'video') {
-  //       const elementVolume = selectedElement.content.volume !== undefined
-  //         ? selectedElement.content.volume * 100
-  //         : 100;
-  //       setVolume(elementVolume);
-  //       setIsMuted(selectedElement.content.muted || false);
-  //     }
-  //   }
-  // }, [selectedElement]);
-
-  // // Add a toggle function
-  // const toggleAudioSource = () => {
-  //   setAudioSource(prev => (prev === 'video' ? 'uploaded' : 'video'));
-  // };
-
-  // In the return statement, add a toggle button
-  // useEffect(() => {
-  //   const activeAudioElements = elements.filter(
-  //     el => el.type === "audio" &&
-  //       currentTime >= el.start &&
-  //       currentTime <= el.end
-  //   );
-
-  //   // Update active audio elements
-  //   activeAudioElementsRef.current = activeAudioElements;
-
-  //   // Create or update audio elements
-  //   activeAudioElements.forEach(audio => {
-  //     let audioElement = audioRefs.current[audio.id];
-
-  //     if (!audioElement) {
-  //       audioElement = new Audio(audio.content.src);
-  //       audioRefs.current[audio.id] = audioElement;
-
-  //       // Set up event handlers
-  //       audioElement.onerror = (e) => {
-  //         console.error("Error loading audio:", e);
-  //       };
-
-  //       audioElement.oncanplaythrough = () => {
-  //         console.log("Audio ready to play:", audio.id);
-  //       };
-
-  //       // Set initial volume and mute state
-  //       audioElement.volume = audio.content.volume !== undefined ? audio.content.volume : 1.0;
-  //       audioElement.muted = audio.content.muted || false;
-  //     }
-  //     // Update volume and mute state based on selected element
-  //     if (selectedElement && selectedElement.id === audio.id) {
-  //       audioElement.volume = volume / 100;
-  //       audioElement.muted = isMuted;
-  //     } else {
-  //       // Ensure audio elements always use their own volume/mute settings by default
-  //       audioElement.volume = audio.content.volume !== undefined ? audio.content.volume : 1.0;
-  //       audioElement.muted = audio.content.muted || false;
-  //     }
-  //     console.log("Preview Audio element state:", {
-  //       elementId: audio.id,
-  //       volume: audioElement.volume,
-  //       muted: audioElement.muted,
-  //       selectedElementId: selectedElement?.id
-  //     });
-
-  //     // Calculate time within the audio clip
-  //     const audioLocalTime = Math.max(0, currentTime - audio.start);
-
-  //     // Only update time if it's significantly different
-  //     if (Math.abs(audioElement.currentTime - audioLocalTime) > 0.2) {
-  //       audioElement.currentTime = audioLocalTime;
-  //     }
-
-  //     // Update playback logic to respect the selected audio source
-  //     console.log("Current audioSource:", audioSource);
-  //     if (audioSource === 'uploaded') {
-  //       console.log("Playing uploaded audio");
-  //       // Play uploaded audio elements
-  //       if (isPlaying) {
-  //         if (audioElement.paused) {
-  //           const playPromise = audioElement.play();
-  //           if (playPromise !== undefined) {
-  //             playPromise.catch(error => {
-  //               console.error("Error playing audio:", error);
-  //             });
-  //           }
-  //         }
-  //       } else {
-  //         if (!audioElement.paused) {
-  //           audioElement.pause();
-  //         }
-  //       }
-  //     } else {
-  //       console.log("Playing video audio");
-  //       // Play video audio
-  //       const videoElement = videoRef.current;
-  //       if (videoElement) {
-  //         videoElement.volume = volume / 100;
-  //         videoElement.muted = isMuted;
-  //         // Existing video playback logic...
-  //       }
-  //     }
-  //     if (isPlaying && audioSource !== 'uploaded') { // Ensure video play is only triggered when not using uploaded audio
-  //       const videoElement = videoRef.current;
-  //       if (videoElement && videoElement.paused) {
-  //         const playPromise = videoElement.play();
-  //         if (playPromise !== undefined) {
-  //           playPromise.catch(error => {
-  //             console.error("Error playing video:", error);
-  //           });
-  //         }
-  //       }
-  //     } else if (!isPlaying && audioSource !== 'uploaded') { // Ensure video pause is only triggered when not using uploaded audio
-  //       const videoElement = videoRef.current;
-  //       if (videoElement && !videoElement.paused) {
-  //         videoElement.pause();
-  //       }
-  //     }
-  //   });
-
-  //   // Cleanup removed audio elements
-  //   Object.keys(audioRefs.current).forEach(id => {
-  //     if (!activeAudioElements.some(a => a.id === id)) {
-  //       const audio = audioRefs.current[id];
-  //       audio.pause();
-  //       delete audioRefs.current[id];
-  //     }
-  //   });
-  // }, [elements, currentTime, isPlaying, volume, audioSource]);
+    lastTimeRef.current = currentTime;
+  }, [elements, currentTime, audioPriority, volume, isPlaying]);
 
   useEffect(() => {
-    if (Math.abs(currentTime - lastTimeRef.current) > 0.1) {
-      activeAudioElementsRef.current.forEach(audio => {
-        const audioElement = audioRefs.current[audio.id];
-        if (audioElement) {
-          const audioLocalTime = Math.max(0, currentTime - audio.start);
+    if (timeJumpedRef.current) {
+      console.log("Timeline jumped, synchronizing audio positions");
+      if (audioSyncTimeoutRef.current) {
+        clearTimeout(audioSyncTimeoutRef.current);
+      }
 
-          if (Math.abs(audioElement.currentTime - audioLocalTime) > 0.2) {
-            console.log("Updating audio time for", audio.id, "to", audioLocalTime);
-            audioElement.currentTime = audioLocalTime;
-          }
-        }
-      });
+      audioSyncTimeoutRef.current = setTimeout(() => {
+        syncAudioPositions();
+        timeJumpedRef.current = false;
+      }, 50);
     }
-    lastTimeRef.current = currentTime;
   }, [currentTime]);
+
+  // useEffect(() => {
+  //   if (Math.abs(currentTime - lastTimeRef.current) > 0.1) {
+  //     activeAudioElementsRef.current.forEach(audio => {
+  //       const audioElement = audioRefs.current[audio.id];
+  //       if (audioElement) {
+  //         const audioLocalTime = Math.max(0, currentTime - audio.start);
+
+  //         if (Math.abs(audioElement.currentTime - audioLocalTime) > 0.2) {
+  //           console.log("Updating audio time for", audio.id, "to", audioLocalTime);
+  //           audioElement.currentTime = audioLocalTime;
+  //         }
+  //       }
+  //     });
+  //   }
+  //   lastTimeRef.current = currentTime;
+  // }, [currentTime]);
 
   useEffect(() => {
     console.log("Playback state changed:", isPlaying);
     updateMediaStates();
+
+    if (isPlaying) {
+      timeJumpedRef.current = true;
+      forceSyncRef.current = true;
+      syncAudioPositions();
+    }
   }, [isPlaying]);
 
   useEffect(() => {
@@ -390,7 +300,7 @@ const Preview = ({
     } else {
       videoElement.pause();
     }
-  }, [isPlaying, onPause, videoEnded, currentTime, duration, onTimeUpdate, volume, isMuted]);
+  }, [isPlaying, onPause, videoEnded, currentTime, duration, onTimeUpdate]);
 
   // Apply volume change to video
   useEffect(() => {
@@ -404,8 +314,17 @@ const Preview = ({
       timeUpdateBlocker.current = true;
       videoElement.currentTime = currentTime;
 
-      setTimeout(() => {
+      timeJumpedRef.current = true;
+      forceSyncRef.current = true;
+
+      if (audioSyncTimeoutRef.current) {
+        clearTimeout(audioSyncTimeoutRef.current);
+      }
+
+      audioSyncTimeoutRef.current = setTimeout(() => {
+        syncAudioPositions();
         timeUpdateBlocker.current = false;
+        console.log("Forced audio sync after timeline position change");
       }, 50);
     }
   }, [currentTime]);
@@ -421,27 +340,13 @@ const Preview = ({
     el => el.type === "audio" && currentTime >= el.start && currentTime <= el.end
   );
 
-  // If we're playing, ensure the video continues playing after volume change
-  // if (isPlaying && videoRef.current?.paused) {
-  //   const playPromise = videoRef.current.play();
-  //   if (playPromise !== undefined) {
-  //     playPromise.catch(error => {
-  //       console.error("Error playing video after volume change:", error);
-  //     });
-  //   }
-  // }
-
-  // console.log("Preview Video audio state (Volume Change Effect):", {
-  //   volume: videoRef.current?.volume,
-  //   muted: videoRef.current?.muted,
-  //   isPlaying: !videoRef.current?.paused,
-  //   selectedElementId: selectedElement?.id
-  // }, [volume, isMuted, isPlaying]);
-
   // Handle restart
   const handleRestart = () => {
     setVideoEnded(false);
     onRestart();
+
+    timeJumpedRef.current = true;
+    forceSyncRef.current = true;
   };
 
   // Handle play with restart if needed
@@ -452,28 +357,46 @@ const Preview = ({
     onPlay();
   };
 
+  const handleTimelineClick = (newTime: number) => {
+    timeJumpedRef.current = true;
+    forceSyncRef.current = true;
+    onTimeUpdate(newTime);
+
+    if (audioSyncTimeoutRef.current) {
+      clearTimeout(audioSyncTimeoutRef.current);
+    }
+
+    audioSyncTimeoutRef.current = setTimeout(() => {
+      syncAudioPositions();
+      console.log("Forced audio sync after timeline click");
+    }, 50);
+  };
+
+
   // Apply crop styles if crop is defined
   const getVideoStyle = () => {
-    const crop = elementCrop || (videoElement && videoElement.content.crop);
-    if (crop) {
+    if (videoElement && videoElement.content.crop) {
+      const crop = elementCrop || (videoElement && videoElement.content.crop);
+      if (crop) {
+        return {
+          display: isBuffering ? 'none' : 'block',
+          objectFit: 'cover' as const,
+          transform: `translate(${-crop.x}%, ${-crop.y}%) scale(${100 / crop.width}, ${100 / crop.height})`,
+          transformOrigin: 'top left',
+          width: '100%',
+          height: '100%',
+          transition: 'all 0.1s ease-out'
+        };
+      }
+
       return {
         display: isBuffering ? 'none' : 'block',
-        objectFit: 'cover' as const,
-        transform: `translate(${-crop.x}%, ${-crop.y}%) scale(${100 / crop.width}, ${100 / crop.height})`,
-        transformOrigin: 'top left',
+        objectFit: 'contain' as const,
         width: '100%',
         height: '100%',
         transition: 'all 0.1s ease-out'
       };
     }
-
-    return {
-      display: isBuffering ? 'none' : 'block',
-      objectFit: 'contain' as const,
-      width: '100%',
-      height: '100%',
-      transition: 'all 0.1s ease-out'
-    };
   };
 
   // Force video element to update when crop changes
@@ -494,7 +417,7 @@ const Preview = ({
             <video
               ref={videoRef}
               src={videoElement.content.src}
-              className="w-full h-full"
+              className="absolute inset-0 m-auto"
               playsInline
               preload="auto"
               style={getVideoStyle()}
@@ -512,7 +435,7 @@ const Preview = ({
             No media at current position
           </div>
         )}
-        <div className="hidden">
+        {/* <div className="hidden"> */}
           <div className="absolute bottom-0 left-0 right-0 p-2 z-10">
             {activeAudioElements.length > 0 && (
               <div className="bg-white/60 rounded mb-2 p-2 text-white text-xs">
@@ -646,8 +569,8 @@ const Preview = ({
                       max={100}
                       step={1}
                       onValueChange={(value) => setVolume(value[0])}
-                      disabled={isMuted}
-                      className={isMuted ? "opacity-50" : ""}
+                      // disabled={isMuted}
+                      // className={isMuted ? "opacity-50" : ""}
                     />
                   </div>
                 )}
@@ -677,18 +600,8 @@ const Preview = ({
           />
         ))}
       </div>
-    </div>
+    // </div>
   );
 };
-
-// Debug helper
-
-// const toggleMute = useCallback(() => {
-//   setIsMuted(!isMuted);
-// }, [isMuted]);
-
-// const handleVolumeChange = useCallback((value: number[]) => {
-//   setVolume(value[0]);
-// }, []);
 
 export default Preview;

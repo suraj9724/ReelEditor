@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { AudioLines, Volume2, VolumeX, Video, VideoIcon } from "lucide-react";
+import { Volume2, VolumeX, Video, FileAudio2 } from "lucide-react";
 import { TimelineElement } from "@/types/timeline";
 import { Slider } from "@/components/UI/slider";
 import Panel from "../UI/Panel";
@@ -58,19 +58,19 @@ const AudioControl = ({
       handleMuteToggle(); // Unmute when volume is increased from zero
     }
     // Force immediate update by modifying the audio element directly
-    if (selectedElement) {
-      const audioElement = document.querySelector(`audio[data-element-id="${selectedElementId}"]`) as HTMLAudioElement;
-      if (audioElement) {
-        audioElement.volume = normalizedVolume;
-      }
-    }
+    // if (selectedElement) {
+    //   const audioElement = document.querySelector(`audio[data-element-id="${selectedElementId}"]`) as HTMLAudioElement;
+    //   if (audioElement) {
+    //     audioElement.volume = normalizedVolume;
+    //   }
+    // }
 
-    // Log the volume change for debugging
-    console.log("AudioControl Volume changed:", {
-      elementId: selectedElementId,
-      volume: normalizedVolume,
-      percentage: value
-    });
+    // // Log the volume change for debugging
+    // console.log("AudioControl Volume changed:", {
+    //   elementId: selectedElementId,
+    //   volume: normalizedVolume,
+    //   percentage: value
+    // });
   };
 
   // Handle mute toggle
@@ -83,30 +83,30 @@ const AudioControl = ({
     onMuteToggle(selectedElementId, newMuted);
 
     // Force immediate update
-    if (selectedElement) {
-      const audioElement = document.querySelector(`audio[data-element-id="${selectedElementId}"]`) as HTMLAudioElement;
-      if (audioElement) {
-        audioElement.muted = newMuted;
-      }
-    }
+    // if (selectedElement) {
+    //   const audioElement = document.querySelector(`audio[data-element-id="${selectedElementId}"]`) as HTMLAudioElement;
+    //   if (audioElement) {
+    //     audioElement.muted = newMuted;
+    //   }
+    // }
     // Log the mute toggle for debugging
-    console.log("AudioControl Mute toggled:", {
-      elementId: selectedElementId,
-      muted: newMuted
-    });
+    // console.log("AudioControl Mute toggled:", {
+    //   elementId: selectedElementId,
+    //   muted: newMuted
+    // });
     if (newMuted) {
       toast.info(`${selectedElement?.type === 'video' ? 'Video' : 'Audio'} muted`);
     } else {
       toast.info(`${selectedElement?.type === 'video' ? 'Video' : 'Audio'} unmuted`);
     }
   };
+  // Handle audio priority change
   const handleAudioPriorityChange = (priority: 'video' | 'audio') => {
-    if (onAudioPriorityChange && audioPriority !== priority) {
-      console.log(`AudioControl: Setting audio priority to ${priority}`);
-      onAudioPriorityChange(priority);
+    if (!onAudioPriorityChange || audioPriority === priority) return;
 
-      toast.success(`Audio priority set to ${priority === 'video' ? 'video audio' : 'uploaded audio'}`);
-    }
+    onAudioPriorityChange(priority);
+
+    toast.success(priority === 'video' ? "Video audio prioritized" : "External audio prioritized");
   };
   // Common UI for audio priority controls
   const renderAudioPriorityControls = () => (
@@ -120,7 +120,7 @@ const AudioControl = ({
           className="flex-1"
           onClick={() => handleAudioPriorityChange('video')}
         >
-          <VideoIcon size={10} className="mr-2" />
+          <Video size={16} className="mr-2" />
           Video Audio
         </Button>
         <Button
@@ -129,55 +129,72 @@ const AudioControl = ({
           className="flex-1"
           onClick={() => handleAudioPriorityChange('audio')}
         >
-          <AudioLines size={16} className="mr-2" />
+          <FileAudio2 size={16} className="mr-2" />
           Audio Files
         </Button>
       </div>
     </div>
   );
-  if (!selectedElement || (selectedElement.type !== 'audio' && selectedElement.type !== 'video')) {
-    return (
-      <Panel title="Audio Control" className="p-4">
-        <div className="space-y-4">
-          <p className="text-sm text-editor-muted text-center mb-4">
-            Select an audio or video element to adjust volume
-          </p>
+  // if (!selectedElement || (selectedElement.type !== 'audio' && selectedElement.type !== 'video')) {
+  //   return (
+  //     <Panel title="Audio Control" className="p-4">
+  //       <div className="space-y-4">
+  //         <p className="text-sm text-editor-muted text-center mb-4">
+  //           Select an audio or video element to adjust volume
+  //         </p>
 
-          {renderAudioPriorityControls()}
-        </div>
-      </Panel>
-    );
-  }
+  //         {renderAudioPriorityControls()}
+
+  //       </div>
+  //     </Panel>
+  //   );
+  // }
 
   return (
     <Panel title="Audio Control" className="p-4">
       <div className="space-y-4">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-sm font-medium">
-            {selectedElement.type === 'audio' ? 'Audio' : 'Video'} Volume
-          </span>
-          <IconButton
-            icon={isMuted ? VolumeX : Volume2}
-            onClick={handleMuteToggle}
-            tooltip={isMuted ? "Unmute" : "Mute"}
-          />
-        </div>
+        {selectedElement && (selectedElement.type === 'audio' || selectedElement.type === 'video') ? (
+          <>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium">
+                {selectedElement.type === 'audio' ? 'Audio' : 'Video'} Volume
+              </span>
+              <IconButton
+                icon={isMuted ? VolumeX : Volume2}
+                onClick={handleMuteToggle}
+                tooltip={isMuted ? "Unmute" : "Mute"}
+              />
+            </div>
 
-        <Slider
-          value={[volume]}
-          min={0}
-          max={100}
-          step={1}
-          onValueChange={(value) => handleVolumeChange(value[0])}
-          disabled={isMuted}
-          className={isMuted ? "opacity-50" : ""}
-        />
+            <Slider
+              value={[volume]}
+              min={0}
+              max={100}
+              step={1}
+              onValueChange={(value) => handleVolumeChange(value[0])}
+              disabled={isMuted}
+              className={isMuted ? "opacity-50" : ""}
+            />
 
-        <div className="text-xs text-right text-editor-muted">
-          {volume}%
-        </div>
+            <div className="text-xs text-right text-editor-muted">
+              {volume}%
+            </div>
+          </>
+        ) : (
+          <p className="text-sm text-editor-muted text-center mb-4">
+            Select an audio or video element to adjust volume
+          </p>
+        )}
 
         {renderAudioPriorityControls()}
+
+        <div className="text-xs text-editor-muted mt-2 pt-2 border-t border-editor-border/50">
+          <p>
+            {audioPriority === 'video' ?
+              "Video audio is prioritized. Audio files are muted." :
+              "Audio files are prioritized. Video audio is muted."}
+          </p>
+        </div>
       </div>
     </Panel>
   );

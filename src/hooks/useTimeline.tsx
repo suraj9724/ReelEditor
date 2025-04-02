@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { toast } from "sonner";
 import { TimelineElement } from "@/types/timeline";
@@ -11,6 +11,16 @@ export const useTimeline = () => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [history, setHistory] = useState<TimelineElement[][]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
+  const [audioPriority, setAudioPriority] = useState<'video' | 'audio'>('video');
+
+  // Prevent audio elements from being removed when switching panels
+  const audioElementsRef = useRef<TimelineElement[]>([]);
+
+  // Flag to track if we need to ensure video audio is unmuted after priority change
+  const pendingVideoUnmuteRef = useRef(false);
+
+  // Make sure we track if we need to sync audio when time changes
+  const timeJumpedRef = useRef(false);
 
   // Save current state to history
   const saveHistory = useCallback(() => {
@@ -47,9 +57,10 @@ export const useTimeline = () => {
       content: {
         src: mediaItem.url,
         volume: 1.0, // Ensure video has volume is set to 1.0 (full volume)
+        muted: mediaItem.type === "video" ? false : audioPriority === 'video', // Set muted based on priority
       },
-      x: 0,
-      y: 0,
+      x: 10,
+      y: 10,
       width: mediaItem.type === "image" ? 300 : 480, // Set initial video width
       height: mediaItem.type === "image" ? 200 : 270, // Set initial video height
       rotation: 0,
@@ -64,7 +75,7 @@ export const useTimeline = () => {
 
     saveHistory();
     return id;
-  }, [currentTime, recalculateDuration, saveHistory]);
+  }, [currentTime, recalculateDuration, saveHistory, audioPriority]);
 
   // Add an audio element to the timeline
   const addAudioElement = useCallback((audioFile: any, trackIndex: number = 2, startTime: number = currentTime) => {
@@ -81,7 +92,7 @@ export const useTimeline = () => {
       content: {
         src: audioFile.url,
         volume: 1.0, // Set to full volume by default
-        muted: false, // Never muted by default
+        muted: audioPriority === 'video',
       },
       x: 0,
       y: 0,
@@ -93,6 +104,8 @@ export const useTimeline = () => {
 
     setElements((prev) => {
       const newElements = [...prev, newElement];
+      // Store audio elements in ref for persistence
+      audioElementsRef.current = newElements.filter(el => el.type === "audio");
       recalculateDuration(newElements);
       return newElements;
     });
@@ -100,7 +113,7 @@ export const useTimeline = () => {
     saveHistory();
     toast.success(`Added audio: ${audioFile.name || "Audio Track"}`);
     return id;
-  }, [currentTime, recalculateDuration, saveHistory]);
+  }, [currentTime, recalculateDuration, saveHistory, audioPriority]);
 
   // Add a text element to the timeline
   const addTextElement = useCallback((textProps: any, trackIndex: number = 0, startTime: number = currentTime) => {
@@ -113,15 +126,7 @@ export const useTimeline = () => {
       start: startTime,
       end: startTime + 5,
       track: trackIndex,
-      content: {
-        src: "", // Dummy src to satisfy type requirement
-        content: textProps.content,
-        fontSize: textProps.fontSize,
-        fontWeight: textProps.fontWeight,
-        fontStyle: textProps.fontStyle,
-        color: textProps.color,
-        alignment: textProps.alignment
-      },
+      content: textProps,
       x: 240 - (textProps.content.length * 5),
       y: 135,
       width: Math.max(200, textProps.content.length * 10),
@@ -144,6 +149,12 @@ export const useTimeline = () => {
   const removeElement = useCallback((id: string) => {
     setElements((prev) => {
       const newElements = prev.filter((el) => el.id !== id);
+
+      // If this is an audio element, update our audio elements ref
+      if (prev.find(el => el.id === id)?.type === "audio") {
+        audioElementsRef.current = newElements.filter(el => el.type === "audio");
+      }
+
       recalculateDuration(newElements);
       return newElements;
     });
@@ -167,10 +178,18 @@ export const useTimeline = () => {
   const updateElementDimensions = useCallback((id: string, width: number, height: number) => {
     setElements((prev) =>
       prev.map((el) =>
-        el.id === id ? { ...el, width, height } : el
+        el.id === id ? {
+          ...el,
+          content: {
+            ...el.content,
+            // volume: Math.max(0, Math.min(1, volume)), // Ensure volume is between 0 and1
+            // muted: volume <= 0 // Auto-mute if volume is 0
+          }
+        } : el
       )
     );
-  }, []);
+    saveHistory();
+  }, [saveHistory]);
 
   // Update element volume
   const updateElementVolume = useCallback((id: string, volume: number) => {
@@ -180,9 +199,8 @@ export const useTimeline = () => {
           ...el,
           content: {
             ...el.content,
-            volume,
-            // Ensure muted is preserved
-            muted: el.content.muted || false
+            volume: Math.max(0, Math.min(1, volume)), // Ensure volume is between 0 and 1
+            muted: volume <= 0 // Auto-mute if volume is 0
           }
         } : el
       )
@@ -192,17 +210,28 @@ export const useTimeline = () => {
 
   // Toggle element mute
   const toggleElementMute = useCallback((id: string, muted: boolean) => {
-    setElements((prev) =>
-      prev.map((el) =>
-        el.id === id ? {
-          ...el,
-          content: {
-            ...el.content,
-            muted
+    setElements((prev) => {
+      // Get the element to check its type
+      const element = prev.find(el => el.id === id);
+
+      return prev.map((el) => {
+        if (el.id === id) {
+          // If this is a video element and we're unmuting, set flag to ensure it stays unmuted
+          if (el.type === 'video' && !muted) {
+            pendingVideoUnmuteRef.current = true;
           }
-        } : el
-      )
-    );
+
+          return {
+            ...el,
+            content: {
+              ...el.content,
+              muted
+            }
+          };
+        }
+        return el;
+      });
+    });
     saveHistory();
   }, [saveHistory]);
 
@@ -227,18 +256,8 @@ export const useTimeline = () => {
     setElements((prev) => {
       const updatedElements = prev.map((el) => {
         if (el.id === id) {
-          // Ensure minimum duration of 0.5 seconds
-          if (end - start < 0.5) {
-            if (start === el.start) {
-              // If we're trimming from the start, adjust the end
-              end = start + 0.5;
-            } else {
-              // If we're trimming from the end, adjust the start
-              start = end - 0.5;
-            }
-          }
-
-          // Update the element's time range
+          // If this is a video element, we should update both the start/end times
+          // and adjust the video content to reflect the new trimmed section
           return {
             ...el,
             start,
@@ -351,10 +370,11 @@ export const useTimeline = () => {
       // If we're at the end, restart playback from the beginning
       if (currentTime >= duration - 0.1) {
         setCurrentTime(0);
+        timeJumpedRef.current = true;
       }
       return !prev;
     });
-  }, [currentTime, duration]);
+  }, [currentTime, duration, setCurrentTime]);
 
   // Undo the last action
   const undo = useCallback(() => {
@@ -384,14 +404,158 @@ export const useTimeline = () => {
     setIsPlaying(false);
   }, []);
 
+  // Toggle audio priority between video and audio files
+  const updateAudioPriority = useCallback((priority: 'video' | 'audio') => {
+    setAudioPriority(priority);
+    console.log(`Timeline: Audio priority set to ${priority}`);
+
+    // and audio elements are muted
+    setElements(prev =>
+      prev.map(el => {
+        if (el.type === "video") {
+          return {
+            ...el,
+            content: {
+              ...el.content,
+              muted: priority === 'audio' // Mute video only if audio has priority
+            }
+          };
+        } else if (el.type === "audio") {
+          return {
+            ...el,
+            content: {
+              ...el.content,
+              muted: priority === 'video' // Mute audio files when video has priority
+            }
+          };
+        }
+        return el;
+      })
+    );
+
+    // Set flag to ensure videos are properly unmuted when needed
+    if (priority === 'video') {
+      pendingVideoUnmuteRef.current = true;
+    }
+  }, []);
+
+  // Ensure audio elements persist when panels change
+  useEffect(() => {
+    // Always ensure we have all audio elements in the timeline
+    if (audioElementsRef.current.length > 0) {
+      const currentAudioIds = new Set(elements.filter(el => el.type === "audio").map(el => el.id));
+
+      // Add any audio elements that are in our ref but not in the current elements
+      if (audioElementsRef.current.some(el => !currentAudioIds.has(el.id))) {
+        setElements(prev => {
+          const newElements = [...prev];
+
+          audioElementsRef.current.forEach(audioEl => {
+            if (!currentAudioIds.has(audioEl.id)) {
+              // Make sure to include the element with the current audio priority setting
+              newElements.push({
+                ...audioEl,
+                content: {
+                  ...audioEl.content,
+                  muted: audioPriority === 'video' // Mute based on current priority
+                }
+              });
+            }
+          });
+
+          return newElements;
+        });
+      }
+    }
+
+    // If we have a flag to unmute video, do it
+    if (pendingVideoUnmuteRef.current) {
+      setElements(prev =>
+        prev.map(el =>
+          el.type === "video" && audioPriority === 'video' ? {
+            ...el,
+            content: {
+              ...el.content,
+              muted: false
+            }
+          } : el
+        )
+      );
+      pendingVideoUnmuteRef.current = false;
+    }
+  }, [elements, audioPriority]);
+
+  // Update setCurrentTime to mark time jumps
+  const setCurrentTimeWithSync = useCallback((time: number) => {
+    setCurrentTime(time);
+    timeJumpedRef.current = true;
+  }, []);
+
+  // Add a function to handle playing audio from a specific position
+  const playFromPosition = useCallback((position: number) => {
+    setCurrentTimeWithSync(position);
+    setIsPlaying(true);
+  }, [setCurrentTimeWithSync]);
+
+  // Update the normal useEffect for playback to handle time jumps
+  useEffect(() => {
+    if (!isPlaying) return;
+
+    let animationFrame: number;
+    let lastTime = performance.now();
+
+    const updateTime = (currentTime: number) => {
+      // Reset the time jumped flag after the first frame
+      timeJumpedRef.current = false;
+
+      const delta = (currentTime - lastTime) / 1000;
+      lastTime = currentTime;
+
+      setCurrentTime((time) => {
+        if (time + delta >= duration) {
+          setIsPlaying(false);
+          return duration;
+        }
+        return time + delta;
+      });
+
+      animationFrame = requestAnimationFrame(updateTime);
+    };
+
+    animationFrame = requestAnimationFrame(updateTime);
+
+    return () => {
+      cancelAnimationFrame(animationFrame);
+    };
+  }, [isPlaying, duration, setCurrentTime, setIsPlaying]);
+
+  // Ensure video audio unmutes properly when changing priority
+  useEffect(() => {
+    if (audioPriority === 'video') {
+      setElements(prev =>
+        prev.map(el =>
+          el.type === "video" ? {
+            ...el,
+            content: {
+              ...el.content,
+              muted: false
+            }
+          } : el
+        )
+      );
+    }
+  }, [audioPriority]);
+
+
   return {
     elements,
     selectedElementId,
     currentTime,
     duration,
     isPlaying,
+    audioPriority,
     setSelectedElementId,
-    setCurrentTime,
+    setCurrentTime: setCurrentTimeWithSync,
     setDuration,
     addMediaElement,
     addTextElement,
@@ -403,15 +567,18 @@ export const useTimeline = () => {
     updateElementSpeed,
     updateElementVolume,
     toggleElementMute,
+    updateAudioPriority,
     cropElement,
     mergeVideoElements,
     togglePlayback,
     setIsPlaying,
+    playFromPosition,
     undo,
     redo,
     restartTimeline,
     canUndo: historyIndex > 0,
     canRedo: historyIndex < history.length - 1,
+    timeJumped: timeJumpedRef.current,
   };
 };
 
